@@ -1,4 +1,4 @@
-Backlog
+Done
 1.  create an empty queue
 1.  enqueue a PR
 1.  enqueue a second PR
@@ -9,7 +9,8 @@ Backlog
 1.  generate command for building staging branch
 1.  handle updates to PRs
 
-
+Backlog
+1.  merge batch command capable of precise merging
 1.  retrying, then
 1.  bisecting
 1.  accept status for PRs as well as staging branch builds

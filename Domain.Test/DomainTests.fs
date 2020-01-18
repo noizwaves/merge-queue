@@ -5,12 +5,12 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 
 
-let private one = makePullRequest "someOwner" "someRepo" 1
-let private two = makePullRequest "someOwner" "someRepo" 22
-let private three = makePullRequest "someOwner" "someRepo" 333
+let private one = pullRequest (pullRequestId 1)
+let private two = pullRequest (pullRequestId 22)
+let private three = pullRequest (pullRequestId 333)
 
 let private idleWithTwoPullRequests: MergeQueueState =
-    emptyMergeQueue()
+    emptyMergeQueue
     |> enqueue one
     |> snd
     |> enqueue two
@@ -28,16 +28,22 @@ let private mergingBatchOfTwo: MergeQueueState =
 
 [<Fact>]
 let ``Empty queue``() =
-    emptyMergeQueue()
+    let queue = emptyMergeQueue
+
+    queue
     |> getDepth
     |> should equal 0
+
+    queue
+    |> getStatus
+    |> should equal Status.Idle
 
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let pr = one
 
     let (result, state) =
-        emptyMergeQueue() |> enqueue pr
+        emptyMergeQueue |> enqueue pr
 
     result |> should equal EnqueueResult.Success
 
@@ -50,7 +56,7 @@ let ``Enqueue an already enqueued Pull Request``() =
     let pr = one
 
     let singlePrQueueState =
-        emptyMergeQueue()
+        emptyMergeQueue
         |> enqueue pr
         |> snd
 
@@ -70,7 +76,7 @@ let ``Enqueue multiple Pull Requests``() =
 
 
     let firstResult, firstState =
-        emptyMergeQueue() |> enqueue first
+        emptyMergeQueue |> enqueue first
 
     let secondResult, secondState =
         firstState |> enqueue second
@@ -95,6 +101,10 @@ let ``Start a batch``() =
     |> getDepth
     |> should equal 2
 
+    state
+    |> getStatus
+    |> should equal Status.Running
+
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
     let (_, runningBatch) =
@@ -108,6 +118,10 @@ let ``Attempt to start a second concurrent batch``() =
     state
     |> getDepth
     |> should equal 2
+
+    state
+    |> getStatus
+    |> should equal Status.Running
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch during merging``() =
@@ -123,7 +137,7 @@ let ``Attempt to start a second concurrent batch during merging``() =
 [<Fact>]
 let ``Attempt to start a batch on an empty queue``() =
     let queue =
-        emptyMergeQueue()
+        emptyMergeQueue
 
     let (result, state) =
         queue |> startBatch
@@ -265,7 +279,7 @@ let ``The branch head for an enqueued PR is updated``() =
     let idle = idleWithTwoPullRequests
 
     let result, state =
-        idle |> updatePullRequestSha 1
+        idle |> updatePullRequestSha (pullRequestId 1)
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -276,9 +290,9 @@ let ``The branch head for a running PR is updated``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha 1
+        running |> updatePullRequestSha (pullRequestId 1)
 
-    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], 1))
+    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], pullRequestId 1))
 
     state
     |> getDepth
@@ -293,7 +307,7 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha 404
+        running |> updatePullRequestSha (pullRequestId 404)
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -307,7 +321,7 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
         |> snd
 
     let result, state =
-        runningOnePrWaiting |> updatePullRequestSha 333
+        runningOnePrWaiting |> updatePullRequestSha (pullRequestId 333)
 
     result |> should equal UpdatePullRequestResult.NoOp
 

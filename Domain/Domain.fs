@@ -1,14 +1,12 @@
 ﻿module MergeQueue.Domain
 
 // Models
-type private PullRequestModel =
-    { owner: string
-      repo: string
-      id: int }
+type PullRequestID = PullRequestID of int
 
-type PullRequest = private PullRequest of PullRequestModel
+type PullRequest =
+    { id: PullRequestID }
 
-type private Batch = List<PullRequest>
+type Batch = List<PullRequest>
 
 type private CurrentBatch =
     | NoBatch
@@ -21,17 +19,19 @@ type private MergeQueueModel =
 
 type MergeQueueState = private MergeQueueState of MergeQueueModel
 
+
 // Constructors
-let emptyMergeQueue(): MergeQueueState =
+let emptyMergeQueue: MergeQueueState =
     MergeQueueState
         { queue = []
           runningBatch = NoBatch }
 
-let makePullRequest (owner: string) (repo: string) (id: int): PullRequest =
-    PullRequest
-        { owner = owner
-          repo = repo
-          id = id }
+let pullRequest (id: PullRequestID): PullRequest =
+    { id = id }
+
+let pullRequestId (value: int): PullRequestID =
+    PullRequestID value
+
 
 // Commands
 type EnqueueResult =
@@ -112,20 +112,20 @@ let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMer
 
 type UpdatePullRequestResult =
     | NoOp
-    | AbortRunningBatch of Batch * int
+    | AbortRunningBatch of Batch * PullRequestID
 
-let updatePullRequestSha (id: int) (MergeQueueState model): UpdatePullRequestResult * MergeQueueState =
+let updatePullRequestSha (id: PullRequestID) (MergeQueueState model): UpdatePullRequestResult * MergeQueueState =
     match model.runningBatch, model.queue with
     | Running batch, _ ->
         let running =
             batch
-            |> List.map (fun (PullRequest pr) -> pr.id)
+            |> List.map (fun pr -> pr.id)
             |> List.contains id
 
         if running then
             // dequeue changed PR
             let newQueue =
-                model.queue |> List.filter (fun (PullRequest pr) -> pr.id <> id)
+                model.queue |> List.filter (fun pr -> pr.id <> id)
 
             AbortRunningBatch(batch, id),
             MergeQueueState
@@ -136,6 +136,7 @@ let updatePullRequestSha (id: int) (MergeQueueState model): UpdatePullRequestRes
             NoOp, MergeQueueState model
     | _ ->
         NoOp, MergeQueueState model
+
 
 // Queries
 let getDepth (MergeQueueState model): int =
