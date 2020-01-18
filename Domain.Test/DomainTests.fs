@@ -5,11 +5,25 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 
 
-let private waitingQueueWithTwoPullRequests: MergeQueueState =
+let private one = makePullRequest "someOwner" "someRepo" 1
+let private two = makePullRequest "someOwner" "someRepo" 22
+let private three = makePullRequest "someOwner" "someRepo" 333
+
+let private idleWithTwoPullRequests: MergeQueueState =
     emptyMergeQueue()
-    |> enqueue (makePullRequest "someOwner" "someRepo" 1)
+    |> enqueue one
     |> snd
-    |> enqueue (makePullRequest "someOwner" "someRepo" 22)
+    |> enqueue two
+    |> snd
+
+let private runningBatchOfTwo: MergeQueueState =
+    idleWithTwoPullRequests
+    |> startBatch
+    |> snd
+
+let private mergingBatchOfTwo: MergeQueueState =
+    runningBatchOfTwo
+    |> ingestBuildUpdate BuildMessage.Success
     |> snd
 
 [<Fact>]
@@ -20,7 +34,7 @@ let ``Empty queue``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request``() =
-    let pr = makePullRequest "someOwner" "someRepo" 1
+    let pr = one
 
     let (result, state) =
         emptyMergeQueue() |> enqueue pr
@@ -33,7 +47,7 @@ let ``Enqueue a Pull Request``() =
 
 [<Fact>]
 let ``Enqueue an already enqueued Pull Request``() =
-    let pr = makePullRequest "someOwner" "someRepo" 1
+    let pr = one
 
     let singlePrQueueState =
         emptyMergeQueue()
@@ -51,8 +65,8 @@ let ``Enqueue an already enqueued Pull Request``() =
 
 [<Fact>]
 let ``Enqueue multiple Pull Requests``() =
-    let first = makePullRequest "someOwner" "someRepo" 1
-    let second = makePullRequest "someOwner" "someRepo" 22
+    let first = one
+    let second = two
 
 
     let firstResult, firstState =
@@ -73,13 +87,9 @@ let ``Enqueue multiple Pull Requests``() =
 [<Fact>]
 let ``Start a batch``() =
     let (result, state) =
-        waitingQueueWithTwoPullRequests |> startBatch
+        idleWithTwoPullRequests |> startBatch
 
-    result
-    |> should equal
-           (StartBatchResult.Success
-               [ makePullRequest "someOwner" "someRepo" 1
-                 makePullRequest "someOwner" "someRepo" 22 ])
+    result |> should equal (StartBatchResult.Success [ one; two ])
 
     state
     |> getDepth
@@ -88,7 +98,7 @@ let ``Start a batch``() =
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
     let (_, runningBatch) =
-        waitingQueueWithTwoPullRequests |> startBatch
+        idleWithTwoPullRequests |> startBatch
 
     let (result, state) =
         runningBatch |> startBatch
@@ -101,18 +111,14 @@ let ``Attempt to start a second concurrent batch``() =
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch during merging``() =
-    let (_, mergingState) =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate BuildMessage.Success
+    let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingState |> startBatch
+        mergingQueue |> startBatch
 
     result |> should equal AlreadyRunning
 
-    state |> should equal mergingState
+    state |> should equal mergingQueue
 
 [<Fact>]
 let ``Attempt to start a batch on an empty queue``() =
@@ -130,19 +136,12 @@ let ``Attempt to start a batch on an empty queue``() =
 
 [<Fact>]
 let ``Recieve message that batch successfully builds when batch is running``() =
-    let runningQueue =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
+    let runningQueue = runningBatchOfTwo
 
     let result, state =
         runningQueue |> ingestBuildUpdate (BuildMessage.Success)
 
-    result
-    |> should equal
-           (IngestBuildResult.PerformBatchMerge
-               [ makePullRequest "someOwner" "someRepo" 1
-                 makePullRequest "someOwner" "someRepo" 22 ])
+    result |> should equal (IngestBuildResult.PerformBatchMerge [ one; two ])
 
     state
     |> getDepth
@@ -150,10 +149,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
 
 [<Fact>]
 let ``Recieve message that batch failed the build when batch is running``() =
-    let runningQueue =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
+    let runningQueue = runningBatchOfTwo
 
     let result, state =
         runningQueue |> ingestBuildUpdate (BuildMessage.Failure)
@@ -166,73 +162,61 @@ let ``Recieve message that batch failed the build when batch is running``() =
 
 [<Fact>]
 let ``Recieve message that build failed when no running batch``() =
-    let runningQueue =
-        waitingQueueWithTwoPullRequests
+    let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Failure)
+        idleQueue |> ingestBuildUpdate (BuildMessage.Failure)
 
     result |> should equal IngestBuildResult.NoOp
 
-    state |> should equal runningQueue
+    state |> should equal idleQueue
 
 [<Fact>]
 let ``Recieve message that build succeeded when no running batch``() =
-    let runningQueue =
-        waitingQueueWithTwoPullRequests
+    let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Success)
+        idleQueue |> ingestBuildUpdate (BuildMessage.Success)
 
     result |> should equal IngestBuildResult.NoOp
 
-    state |> should equal runningQueue
+    state |> should equal idleQueue
 
 [<Fact>]
 let ``Recieve message that build failed when batch is being merged``() =
-    let (_, mergingState) =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate BuildMessage.Success
+    let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingState |> ingestBuildUpdate BuildMessage.Failure
+        mergingQueue |> ingestBuildUpdate BuildMessage.Failure
 
     result |> should equal IngestBuildResult.NoOp
 
-    state |> should equal mergingState
+    state |> should equal mergingQueue
 
 [<Fact>]
 let ``Recieve message that build succeeded when batch is being merged``() =
-    let (_, mergingState) =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate BuildMessage.Success
+    let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingState |> ingestBuildUpdate BuildMessage.Success
+        mergingQueue |> ingestBuildUpdate BuildMessage.Success
 
     result |> should equal IngestBuildResult.NoOp
 
-    state |> should equal mergingState
+    state |> should equal mergingQueue
 
 [<Fact>]
 let ``A Pull Request enqueued during running batch is included in the next batch``() =
-    let runningQueue =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> enqueue (makePullRequest "someOwner" "someRepo" 333)
+    let runningQueueDepthThree =
+        runningBatchOfTwo
+        |> enqueue three
         |> snd
 
-    runningQueue
+    runningQueueDepthThree
     |> getDepth
     |> should equal 3
 
     let finishedQueue =
-        runningQueue
+        runningQueueDepthThree
         |> ingestBuildUpdate (BuildMessage.Success)
         |> snd
         |> ingestMergeUpdate (MergeMessage.Success)
@@ -245,18 +229,13 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let (result, _) =
         finishedQueue |> startBatch
 
-    result |> should equal (StartBatchResult.Success [ makePullRequest "someOwner" "someRepo" 333 ])
+    result |> should equal (StartBatchResult.Success [ three ])
 
 // Batch Merge Message ingestion
 
 [<Fact>]
 let ``Merge success message when batch is being merged``() =
-    let mergingQueue =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate (BuildMessage.Success)
-        |> snd
+    let mergingQueue = mergingBatchOfTwo
 
     let result, state =
         mergingQueue |> ingestMergeUpdate (MergeMessage.Success)
@@ -265,20 +244,11 @@ let ``Merge success message when batch is being merged``() =
     |> getDepth
     |> should equal 0
 
-    result
-    |> should equal
-           (IngestMergeResult.MergeComplete
-               [ makePullRequest "someOwner" "someRepo" 1
-                 makePullRequest "someOwner" "someRepo" 22 ])
+    result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
 
 [<Fact>]
 let ``Merge failure message when batch is being merged``() =
-    let mergingQueue =
-        waitingQueueWithTwoPullRequests
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate (BuildMessage.Success)
-        |> snd
+    let mergingQueue = mergingBatchOfTwo
 
     let result, state =
         mergingQueue |> ingestMergeUpdate (MergeMessage.Failure)
@@ -287,8 +257,4 @@ let ``Merge failure message when batch is being merged``() =
     |> getDepth
     |> should equal 2
 
-    result
-    |> should equal
-           (IngestMergeResult.ReportMergeFailure
-               [ makePullRequest "someOwner" "someRepo" 1
-                 makePullRequest "someOwner" "someRepo" 22 ])
+    result |> should equal (IngestMergeResult.ReportMergeFailure [ one; two ])
