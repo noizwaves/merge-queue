@@ -15,8 +15,17 @@ let makePullRequest (owner: string) (repo: string) (id: int): PullRequest =
     PullRequest(owner, repo, id)
 
 // Operations
-let enqueue (pullRequest: PullRequest) (MergeQueueState(queue, running)): MergeQueueState =
-    MergeQueueState(queue @ [ pullRequest ], running)
+type EnqueueResult =
+    | Success
+    | AlreadyEnqueued
+
+let enqueue (pullRequest: PullRequest) (MergeQueueState(queue, running)): EnqueueResult * MergeQueueState =
+    let alreadyEnqueued =
+        queue |> List.contains pullRequest
+
+    match alreadyEnqueued with
+    | true -> AlreadyEnqueued, MergeQueueState(queue, running)
+    | false -> Success, MergeQueueState(queue @ [ pullRequest ], running)
 
 type StartBatchResult =
     | Success of List<PullRequest>
