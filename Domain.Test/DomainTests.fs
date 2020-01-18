@@ -258,3 +258,57 @@ let ``Merge failure message when batch is being merged``() =
     |> should equal 2
 
     result |> should equal (IngestMergeResult.ReportMergeFailure [ one; two ])
+
+// PRs are updated
+[<Fact>]
+let ``The branch head for an enqueued PR is updated``() =
+    let idle = idleWithTwoPullRequests
+
+    let result, state =
+        idle |> updatePullRequestSha 1
+
+    result |> should equal UpdatePullRequestResult.NoOp
+
+    state |> should equal idle
+
+[<Fact>]
+let ``The branch head for a running PR is updated``() =
+    let running = runningBatchOfTwo
+
+    let result, state =
+        running |> updatePullRequestSha 1
+
+    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], 1))
+
+    state
+    |> getDepth
+    |> should equal 1
+
+    state
+    |> getStatus
+    |> should equal Status.Idle
+
+[<Fact>]
+let ``The branch head for a unknown PR is updated when batch is running``() =
+    let running = runningBatchOfTwo
+
+    let result, state =
+        running |> updatePullRequestSha 404
+
+    result |> should equal UpdatePullRequestResult.NoOp
+
+    state |> should equal running
+
+[<Fact>]
+let ``The branch head for an enqueued (but not running) PR is updated when batch is running``() =
+    let runningOnePrWaiting =
+        runningBatchOfTwo
+        |> enqueue three
+        |> snd
+
+    let result, state =
+        runningOnePrWaiting |> updatePullRequestSha 333
+
+    result |> should equal UpdatePullRequestResult.NoOp
+
+    state |> should equal runningOnePrWaiting

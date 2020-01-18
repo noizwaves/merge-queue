@@ -7,7 +7,10 @@ Backlog
 1.  receive build step
 1.  generate command for merging PRs
 1.  generate command for building staging branch
+1.  handle updates to PRs
 
+
+1.  retrying, then
 1.  bisecting
 1.  accept status for PRs as well as staging branch builds
 1.  max batch size

@@ -110,6 +110,43 @@ let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMer
     | _, _ ->
         IngestMergeResult.NoOp, MergeQueueState model
 
+type UpdatePullRequestResult =
+    | NoOp
+    | AbortRunningBatch of Batch * int
+
+let updatePullRequestSha (id: int) (MergeQueueState model): UpdatePullRequestResult * MergeQueueState =
+    match model.runningBatch, model.queue with
+    | Running batch, _ ->
+        let running =
+            batch
+            |> List.map (fun (PullRequest pr) -> pr.id)
+            |> List.contains id
+
+        if running then
+            // dequeue changed PR
+            let newQueue =
+                model.queue |> List.filter (fun (PullRequest pr) -> pr.id <> id)
+
+            AbortRunningBatch(batch, id),
+            MergeQueueState
+                { model with
+                      queue = newQueue
+                      runningBatch = NoBatch }
+        else
+            NoOp, MergeQueueState model
+    | _ ->
+        NoOp, MergeQueueState model
+
 // Queries
 let getDepth (MergeQueueState model): int =
     model.queue |> List.length
+
+type Status =
+    | Idle
+    | Running
+
+let getStatus (MergeQueueState model): Status =
+    match model.runningBatch with
+    | NoBatch -> Idle
+    | CurrentBatch.Running _ -> Running
+    | CurrentBatch.Merging _ -> Running
