@@ -1,55 +1,72 @@
 ﻿module MergeQueue.Domain
 
 // Models
-type PullRequest = private PullRequest of string * string * int
+type private PullRequestModel =
+    { owner: string
+      repo: string
+      id: int }
+
+type PullRequest = private PullRequest of PullRequestModel
 
 type private RunningBatch = List<PullRequest> option
 
-type MergeQueueState = private MergeQueueState of List<PullRequest> * RunningBatch
+type private MergeQueueModel =
+    { queue: List<PullRequest>
+      runningBatch: RunningBatch }
+
+type MergeQueueState = private MergeQueueState of MergeQueueModel
 
 // Constructors
 let emptyMergeQueue(): MergeQueueState =
-    MergeQueueState([], None)
+    MergeQueueState
+        { queue = []
+          runningBatch = None }
 
 let makePullRequest (owner: string) (repo: string) (id: int): PullRequest =
-    PullRequest(owner, repo, id)
+    PullRequest
+        { owner = owner
+          repo = repo
+          id = id }
 
 // Operations
 type EnqueueResult =
     | Success
     | AlreadyEnqueued
 
-let enqueue (pullRequest: PullRequest) (MergeQueueState(queue, running)): EnqueueResult * MergeQueueState =
+let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * MergeQueueState =
     let alreadyEnqueued =
-        queue |> List.contains pullRequest
+        model.queue |> List.contains pullRequest
 
     match alreadyEnqueued with
-    | true -> AlreadyEnqueued, MergeQueueState(queue, running)
-    | false -> Success, MergeQueueState(queue @ [ pullRequest ], running)
+    | true -> AlreadyEnqueued, MergeQueueState model
+    | false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest ] }
 
 type StartBatchResult =
     | Success of List<PullRequest>
     | AlreadyRunning
     | EmptyQueue
 
-let startBatch (state: MergeQueueState): StartBatchResult * MergeQueueState =
-    match state with
-    | MergeQueueState([], _) -> EmptyQueue, state
-    | MergeQueueState(queue, Some batch) -> AlreadyRunning, (MergeQueueState(queue, Some batch))
-    | MergeQueueState(queue, None) -> Success queue, (MergeQueueState(queue, Some queue))
+let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
+    match model.queue, model.runningBatch with
+    | [], _ -> EmptyQueue, MergeQueueState model
+    | _, Some _ -> AlreadyRunning, MergeQueueState model
+    | queue, None -> Success queue, MergeQueueState { model with runningBatch = Some queue }
 
 type BuildProgressUpdate =
     | Success
     | Failure
 
-let ingestBuildUpdate (update: BuildProgressUpdate) (MergeQueueState(queue, running)): MergeQueueState =
-    match update, running with
-    | Failure, _ -> MergeQueueState(queue, None)
-    | Success, None -> MergeQueueState(queue, None)
+let ingestBuildUpdate (update: BuildProgressUpdate) (MergeQueueState model): MergeQueueState =
+    match update, model.runningBatch with
+    | Failure, _ -> MergeQueueState { model with runningBatch = None }
+    | Success, None -> MergeQueueState model
     | Success, Some batch ->
-        let newQueue = queue |> List.filter (fun n -> List.contains n batch |> not)
-        MergeQueueState(newQueue, None)
+        let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
+        MergeQueueState
+            { model with
+                  queue = newQueue
+                  runningBatch = None }
 
 // Views
-let getDepth (MergeQueueState(queue, _)): int =
-    queue |> List.length
+let getDepth (MergeQueueState model): int =
+    model.queue |> List.length
