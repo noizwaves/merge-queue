@@ -8,11 +8,16 @@ type private PullRequestModel =
 
 type PullRequest = private PullRequest of PullRequestModel
 
-type private RunningBatch = List<PullRequest> option
+type private Batch = List<PullRequest>
+
+type private CurrentBatch =
+    | NoBatch
+    | Running of Batch
+    | Merging of Batch
 
 type private MergeQueueModel =
     { queue: List<PullRequest>
-      runningBatch: RunningBatch }
+      runningBatch: CurrentBatch }
 
 type MergeQueueState = private MergeQueueState of MergeQueueModel
 
@@ -20,7 +25,7 @@ type MergeQueueState = private MergeQueueState of MergeQueueModel
 let emptyMergeQueue(): MergeQueueState =
     MergeQueueState
         { queue = []
-          runningBatch = None }
+          runningBatch = NoBatch }
 
 let makePullRequest (owner: string) (repo: string) (id: int): PullRequest =
     PullRequest
@@ -28,7 +33,7 @@ let makePullRequest (owner: string) (repo: string) (id: int): PullRequest =
           repo = repo
           id = id }
 
-// Operations
+// Commands
 type EnqueueResult =
     | Success
     | AlreadyEnqueued
@@ -47,26 +52,64 @@ type StartBatchResult =
     | EmptyQueue
 
 let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
-    match model.queue, model.runningBatch with
-    | [], _ -> EmptyQueue, MergeQueueState model
-    | _, Some _ -> AlreadyRunning, MergeQueueState model
-    | queue, None -> Success queue, MergeQueueState { model with runningBatch = Some queue }
+    match model.runningBatch, model.queue with
+    | _, [] -> EmptyQueue, MergeQueueState model
+    | Running _, _ -> AlreadyRunning, MergeQueueState model
+    | Merging _, _ -> AlreadyRunning, MergeQueueState model
+    | NoBatch, queue -> Success queue, MergeQueueState { model with runningBatch = Running queue }
 
-type BuildProgressUpdate =
+type BuildMessage =
     | Success
     | Failure
 
-let ingestBuildUpdate (update: BuildProgressUpdate) (MergeQueueState model): MergeQueueState =
-    match update, model.runningBatch with
-    | Failure, _ -> MergeQueueState { model with runningBatch = None }
-    | Success, None -> MergeQueueState model
-    | Success, Some batch ->
-        let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
-        MergeQueueState
-            { model with
-                  queue = newQueue
-                  runningBatch = None }
+type IngestBuildResult =
+    | NoOp
+    | PerformBatchMerge of List<PullRequest>
+    | BuildFailure
 
-// Views
+let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBuildResult * MergeQueueState =
+    match model.runningBatch, message with
+    | NoBatch, Failure ->
+        NoOp, MergeQueueState { model with runningBatch = NoBatch } // The record update doesn't change the value...
+    | Running _, Failure ->
+        BuildFailure, MergeQueueState { model with runningBatch = NoBatch }
+    | Merging _, Failure ->
+        NoOp, MergeQueueState model
+    | NoBatch, Success ->
+        NoOp, MergeQueueState model
+    | Running batch, Success ->
+        let result = PerformBatchMerge batch
+        let state = MergeQueueState { model with runningBatch = Merging batch }
+        (result, state)
+    | Merging _, Success ->
+        NoOp, MergeQueueState model
+
+type MergeMessage =
+    | Success
+    | Failure
+
+type IngestMergeResult =
+    | NoOp
+    | MergeComplete of List<PullRequest>
+    | ReportMergeFailure of List<PullRequest>
+
+let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * MergeQueueState =
+    match model.runningBatch, message with
+    | Merging batch, MergeMessage.Success ->
+        let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
+
+        let state =
+            MergeQueueState
+                { model with
+                      queue = newQueue
+                      runningBatch = NoBatch }
+        IngestMergeResult.MergeComplete batch, state
+    | Merging batch, MergeMessage.Failure ->
+        let state = MergeQueueState { model with runningBatch = NoBatch }
+        IngestMergeResult.ReportMergeFailure batch, state
+    | _, _ ->
+        IngestMergeResult.NoOp, MergeQueueState model
+
+// Queries
 let getDepth (MergeQueueState model): int =
     model.queue |> List.length
