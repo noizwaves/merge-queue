@@ -226,19 +226,12 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
             NoOp, MergeQueueState newModel
 
 
-// Queries
-let getDepth (MergeQueueState model): int =
-    model.queue |> List.length
-
-type Status =
-    | Idle
-    | Running
-
-let getStatus (MergeQueueState model): Status =
-    match model.runningBatch with
-    | NoBatch -> Idle
-    | CurrentBatch.Running _ -> Running
-    | CurrentBatch.Merging _ -> Running
-
-let previewQueue (MergeQueueState model): List<PullRequest> =
+// "Properties"
+let peekCurrentQueue (MergeQueueState model): List<PullRequest> =
     model.queue |> List.map fst
+
+let peekCurrentBatch (MergeQueueState model): Option<List<PullRequest>> =
+    match model.runningBatch with
+    | NoBatch -> None
+    | Running batch -> Some batch
+    | Merging batch -> Some batch

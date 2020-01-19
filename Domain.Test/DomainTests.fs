@@ -32,43 +32,39 @@ let ``Empty queue``() =
     let queue = emptyMergeQueue
 
     queue
-    |> getDepth
-    |> should equal 0
+    |> peekCurrentQueue
+    |> should be Empty
 
     queue
-    |> getStatus
-    |> should equal Status.Idle
+    |> peekCurrentBatch
+    |> should equal None
 
 [<Fact>]
 let ``Enqueue a Pull Request``() =
-    let pr = one
-
     let (result, state) =
-        emptyMergeQueue |> enqueue pr
+        emptyMergeQueue |> enqueue one
 
     result |> should equal EnqueueResult.Success
 
     state
-    |> getDepth
-    |> should equal 1
+    |> peekCurrentQueue
+    |> should equal [ one ]
 
 [<Fact>]
 let ``Enqueue an already enqueued Pull Request``() =
-    let pr = one
-
     let singlePrQueueState =
         emptyMergeQueue
-        |> enqueue pr
+        |> enqueue one
         |> snd
 
     let (result, state) =
-        singlePrQueueState |> enqueue pr
+        singlePrQueueState |> enqueue one
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
     state
-    |> getDepth
-    |> should equal 1
+    |> peekCurrentQueue
+    |> should equal [ one ]
 
 [<Fact>]
 let ``Enqueue multiple Pull Requests``() =
@@ -88,8 +84,8 @@ let ``Enqueue multiple Pull Requests``() =
     secondResult |> should equal EnqueueResult.Success
 
     secondState
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [one; two]
 
 [<Fact>]
 let ``Start a batch``() =
@@ -99,12 +95,12 @@ let ``Start a batch``() =
     result |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
 
     state
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [one; two]
 
     state
-    |> getStatus
-    |> should equal Status.Running
+    |> peekCurrentBatch
+    |> should equal (Some [one; two])
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
@@ -117,12 +113,12 @@ let ``Attempt to start a second concurrent batch``() =
     result |> should equal StartBatchResult.AlreadyRunning
 
     state
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [one; two]
 
     state
-    |> getStatus
-    |> should equal Status.Running
+    |> peekCurrentBatch
+    |> should equal (Some [one; two])
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch during merging``() =
@@ -159,8 +155,12 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     result |> should equal (IngestBuildResult.PerformBatchMerge([ one; two ], (sha "12345678")))
 
     state
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [one; two]
+    
+    state
+    |> peekCurrentBatch
+    |> should equal (Some [one; two])
 
 [<Fact>]
 let ``Recieve message that batch failed the build when batch is running``() =
@@ -172,8 +172,12 @@ let ``Recieve message that batch failed the build when batch is running``() =
     result |> should equal IngestBuildResult.BuildFailure
 
     state
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [one; two]
+    
+    state
+    |> peekCurrentBatch
+    |> should equal None
 
 [<Fact>]
 let ``Single PR batches that fail to build are dequeued``() =
@@ -190,7 +194,7 @@ let ``Single PR batches that fail to build are dequeued``() =
     result |> should equal IngestBuildResult.BuildFailure
 
     state
-    |> previewQueue
+    |> peekCurrentQueue
     |> should be Empty
 
 [<Fact>]
@@ -244,10 +248,6 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         |> enqueue three
         |> snd
 
-    runningQueueDepthThree
-    |> getDepth
-    |> should equal 3
-
     let finishedQueue =
         runningQueueDepthThree
         |> ingestBuildUpdate (BuildMessage.Success(sha "12345678"))
@@ -256,13 +256,17 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         |> snd
 
     finishedQueue
-    |> getDepth
-    |> should equal 1
+    |> peekCurrentQueue
+    |> should equal [three]
 
-    let (result, _) =
+    let (result, state) =
         finishedQueue |> startBatch
 
     result |> should equal (StartBatchResult.PerformBatchBuild [ three ])
+    
+    state
+    |> peekCurrentBatch
+    |> should equal (Some [ three ])
 
 // Batch Merge Message ingestion
 
@@ -285,8 +289,8 @@ let ``Merge failure message when batch is being merged``() =
         mergingQueue |> ingestMergeUpdate (MergeMessage.Failure)
 
     state
-    |> getDepth
-    |> should equal 2
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
 
     result |> should equal (IngestMergeResult.ReportMergeFailure [ one; two ])
 
@@ -418,7 +422,7 @@ let ``Failed batches are bisected upon build failure``() =
     firstResult |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
 
     firstState
-    |> previewQueue
+    |> peekCurrentQueue
     |> should equal [ one; two; three; four ]
 
     // fail the first bisected batch
@@ -432,5 +436,5 @@ let ``Failed batches are bisected upon build failure``() =
     secondResult |> should equal (StartBatchResult.PerformBatchBuild [ one ])
 
     secondState
-    |> previewQueue
+    |> peekCurrentQueue
     |> should equal [ one; two; three; four ]
