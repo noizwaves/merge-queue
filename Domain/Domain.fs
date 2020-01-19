@@ -39,6 +39,7 @@ let pullRequestId (value: int): PullRequestID =
 let sha (value: string): SHA =
     SHA value
 
+
 // Commands
 type EnqueueResult =
     | Success
@@ -96,25 +97,28 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
         NoOp, MergeQueueState model
 
 type MergeMessage =
-    | Success
+    | Success of List<PullRequest>
     | Failure
 
 type IngestMergeResult =
     | NoOp
     | MergeComplete of List<PullRequest>
     | ReportMergeFailure of List<PullRequest>
+    | ReportUnexpectedMerge of List<PullRequest> * List<PullRequest>
 
 let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * MergeQueueState =
     match model.runningBatch, message with
-    | Merging batch, MergeMessage.Success ->
-        let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
+    | Merging merging, MergeMessage.Success merged ->
+        let newQueue = model.queue |> List.filter (fun n -> List.contains n merging |> not)
 
         let state =
             MergeQueueState
                 { model with
                       queue = newQueue
                       runningBatch = NoBatch }
-        IngestMergeResult.MergeComplete batch, state
+
+        if merged = merging then IngestMergeResult.MergeComplete merging, state
+        else IngestMergeResult.ReportUnexpectedMerge(merging, merged), state
     | Merging batch, MergeMessage.Failure ->
         let state = MergeQueueState { model with runningBatch = NoBatch }
         IngestMergeResult.ReportMergeFailure batch, state
@@ -177,6 +181,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
             let newQueue = model |> updateShaForEnqueuedPr newValue id
             let newModel = { model with queue = newQueue }
             NoOp, MergeQueueState newModel
+
 
 // Queries
 let getDepth (MergeQueueState model): int =

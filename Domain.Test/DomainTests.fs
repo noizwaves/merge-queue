@@ -250,7 +250,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         runningQueueDepthThree
         |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
         |> snd
-        |> ingestMergeUpdate (MergeMessage.Success)
+        |> ingestMergeUpdate (MergeMessage.Success [ one; two ])
         |> snd
 
     finishedQueue
@@ -269,13 +269,31 @@ let ``Merge success message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> ingestMergeUpdate (MergeMessage.Success)
-
-    state
-    |> getDepth
-    |> should equal 0
+        mergingQueue |> ingestMergeUpdate (MergeMessage.Success [ one; two ])
 
     result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
+
+    state |> should equal emptyMergeQueue
+
+[<Fact>]
+let ``Merge success message during merging but with different SHAs``() =
+    let mergingQueue = mergingBatchOfTwo
+
+    let result, state =
+        mergingQueue
+        |> ingestMergeUpdate
+            (MergeMessage.Success
+                [ pullRequest one.id (sha "10101010")
+                  two ])
+
+    result
+    |> should equal
+           (IngestMergeResult.ReportUnexpectedMerge
+               ([ one; two ],
+                [ pullRequest one.id (sha "10101010")
+                  two ]))
+
+    state |> should equal emptyMergeQueue
 
 [<Fact>]
 let ``Merge failure message when batch is being merged``() =
