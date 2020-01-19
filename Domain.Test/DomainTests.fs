@@ -8,6 +8,7 @@ open MergeQueue.Domain
 let private one = pullRequest (pullRequestId 1) (sha "00001111")
 let private two = pullRequest (pullRequestId 22) (sha "00002222")
 let private three = pullRequest (pullRequestId 333) (sha "00003333")
+let private four = pullRequest (pullRequestId 4444) (sha "00004444")
 
 let private idleWithTwoPullRequests: MergeQueueState =
     emptyMergeQueue
@@ -175,11 +176,29 @@ let ``Recieve message that batch failed the build when batch is running``() =
     |> should equal 2
 
 [<Fact>]
+let ``Single PR batches that fail to build are dequeued``() =
+    let runningBatchOfOne =
+        emptyMergeQueue
+        |> enqueue one
+        |> snd
+        |> startBatch
+        |> snd
+
+    let result, state =
+        runningBatchOfOne |> ingestBuildUpdate BuildMessage.Failure
+
+    result |> should equal IngestBuildResult.BuildFailure
+
+    state
+    |> previewQueue
+    |> should be Empty
+
+[<Fact>]
 let ``Recieve message that build failed when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> ingestBuildUpdate (BuildMessage.Failure)
+        idleQueue |> ingestBuildUpdate BuildMessage.Failure
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -376,3 +395,42 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
         |> enqueue three
         |> snd
     state |> should equal expectedState
+
+// Failed batches are bisected
+
+[<Fact>]
+let ``Failed batches are bisected upon build failure``() =
+    let failedBuildOfFour =
+        idleWithTwoPullRequests
+        |> enqueue three
+        |> snd
+        |> enqueue four
+        |> snd
+        |> startBatch
+        |> snd
+        |> ingestBuildUpdate BuildMessage.Failure
+        |> snd
+
+    // next batch contains only `one` and `two`
+    let firstResult, firstState =
+        failedBuildOfFour |> startBatch
+
+    firstResult |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
+
+    firstState
+    |> previewQueue
+    |> should equal [ one; two; three; four ]
+
+    // fail the first bisected batch
+    let _, bisectedFails =
+        firstState |> ingestBuildUpdate BuildMessage.Failure
+
+    // next batch contains only `one`
+    let secondResult, secondState =
+        bisectedFails |> startBatch
+
+    secondResult |> should equal (StartBatchResult.PerformBatchBuild [ one ])
+
+    secondState
+    |> previewQueue
+    |> should equal [ one; two; three; four ]

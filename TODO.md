@@ -9,10 +9,10 @@ Done
 1.  generate command for building staging branch
 1.  handle updates to PRs
 1.  merge is able to fail if target head has changed since build
+1.  bisecting
 
 Backlog
-1.  retrying, then
-1.  bisecting
+1.  retrying
 1.  accept status for PRs as well as staging branch builds
 1.  max batch size
 1.  paused

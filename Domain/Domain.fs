@@ -16,8 +16,12 @@ type private CurrentBatch =
     | Running of Batch
     | Merging of Batch
 
+type private BisectPath = List<bool>
+
+type private AttemptQueue = List<PullRequest * BisectPath>
+
 type private MergeQueueModel =
-    { queue: List<PullRequest>
+    { queue: AttemptQueue
       runningBatch: CurrentBatch }
 
 type MergeQueueState = private MergeQueueState of MergeQueueModel
@@ -40,6 +44,10 @@ let sha (value: string): SHA =
     SHA value
 
 
+// misc
+let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
+    queue |> List.filter (fun (pr, _) -> List.contains pr toRemove |> not)
+
 // Commands
 type EnqueueResult =
     | Success
@@ -47,23 +55,36 @@ type EnqueueResult =
 
 let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * MergeQueueState =
     let alreadyEnqueued =
-        model.queue |> List.contains pullRequest
+        model.queue
+        |> List.map fst
+        |> List.contains pullRequest
 
     match alreadyEnqueued with
     | true -> AlreadyEnqueued, MergeQueueState model
-    | false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest ] }
+    | false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest, [] ] }
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>
     | AlreadyRunning
     | EmptyQueue
 
+let private selectBatch (queue: AttemptQueue): Batch =
+    match queue with
+    | [] -> failwith "Should not be called on an empty queue"
+    | head :: tail ->
+        let matching =
+            tail |> List.filter (fun (_, a) -> a = (head |> snd))
+
+        head :: matching |> List.map fst
+
 let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
     match model.runningBatch, model.queue with
     | _, [] -> EmptyQueue, MergeQueueState model
     | Running _, _ -> AlreadyRunning, MergeQueueState model
     | Merging _, _ -> AlreadyRunning, MergeQueueState model
-    | NoBatch, queue -> PerformBatchBuild queue, MergeQueueState { model with runningBatch = Running queue }
+    | NoBatch, queue ->
+        let batch = queue |> selectBatch
+        PerformBatchBuild batch, MergeQueueState { model with runningBatch = Running batch }
 
 type BuildMessage =
     | Success of SHA
@@ -74,12 +95,41 @@ type IngestBuildResult =
     | PerformBatchMerge of List<PullRequest> * SHA
     | BuildFailure
 
+let private bisect (batch: Batch): Option<Batch * Batch> =
+    if List.length batch <= 1 then
+        None
+    else
+        let midpoint = (List.length batch) / 2
+        List.splitAt midpoint batch |> Some
+
 let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBuildResult * MergeQueueState =
     match model.runningBatch, message with
     | NoBatch, Failure ->
         NoOp, MergeQueueState { model with runningBatch = NoBatch } // The record update doesn't change the value...
-    | Running _, Failure ->
-        BuildFailure, MergeQueueState { model with runningBatch = NoBatch }
+    | Running batch, Failure ->
+        match bisect batch with
+        | None ->
+            // no way to bisect -> nothing more to attempt
+            let queue = model.queue |> removeFromQueue batch
+            BuildFailure,
+            MergeQueueState
+                { model with
+                      queue = queue
+                      runningBatch = NoBatch }
+        | Some(first, second) ->
+            // update attempts
+            let newQueue =
+                model.queue
+                |> List.map (fun (pr, a) ->
+                    if List.contains pr first then (pr, a @ [ true ])
+                    elif List.contains pr second then (pr, a @ [ false ])
+                    else pr, a)
+            BuildFailure,
+            MergeQueueState
+                { model with
+                      queue = newQueue
+                      runningBatch = NoBatch }
+
     | Merging _, Failure ->
         NoOp, MergeQueueState model
     | NoBatch, Success _ ->
@@ -103,7 +153,7 @@ type IngestMergeResult =
 let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * MergeQueueState =
     match model.runningBatch, message with
     | Merging merging, MergeMessage.Success ->
-        let newQueue = model.queue |> List.filter (fun n -> List.contains n merging |> not)
+        let newQueue = model.queue |> removeFromQueue merging
 
         let state =
             MergeQueueState
@@ -123,10 +173,10 @@ type UpdatePullRequestResult =
     | AbortRunningBatch of Batch * PullRequestID
     | AbortMergingBatch of Batch * PullRequestID
 
-let private updateShaForEnqueuedPr (newValue: SHA) (id: PullRequestID) (model: MergeQueueModel): List<PullRequest> =
-    let updateCorrespondingSha pr =
-        if pr.id = id then { pr with sha = newValue }
-        else pr
+let private updateShaForEnqueuedPr (newValue: SHA) (id: PullRequestID) (model: MergeQueueModel): AttemptQueue =
+    let updateCorrespondingSha (pr, a) =
+        if pr.id = id then { pr with sha = newValue }, a
+        else pr, a
 
     model.queue |> List.map updateCorrespondingSha
 
@@ -141,7 +191,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
         if running then
             // dequeue changed PR
             let newQueue =
-                model.queue |> List.filter (fun pr -> pr.id <> id)
+                model.queue |> List.filter (fun (pr, _) -> pr.id <> id)
 
             AbortRunningBatch(batch, id),
             MergeQueueState
@@ -164,7 +214,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
 
         if merging then
             // fast fail the current batch, an unsafe PR could be about to merge into target
-            let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
+            let newQueue = model.queue |> List.filter (fun (pr, _) -> List.contains pr batch |> not)
             AbortMergingBatch(batch, id),
             MergeQueueState
                 { model with
@@ -189,3 +239,6 @@ let getStatus (MergeQueueState model): Status =
     | NoBatch -> Idle
     | CurrentBatch.Running _ -> Running
     | CurrentBatch.Merging _ -> Running
+
+let previewQueue (MergeQueueState model): List<PullRequest> =
+    model.queue |> List.map fst
