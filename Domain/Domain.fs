@@ -85,7 +85,7 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
     | NoBatch, Success _ ->
         NoOp, MergeQueueState model
     | Running runningBatch, Success targetHead ->
-        let result = PerformBatchMerge (runningBatch, targetHead)
+        let result = PerformBatchMerge(runningBatch, targetHead)
         let state = MergeQueueState { model with runningBatch = Merging runningBatch }
         (result, state)
     | Merging _, Success _ ->
