@@ -66,12 +66,12 @@ let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
     | NoBatch, queue -> Success queue, MergeQueueState { model with runningBatch = Running queue }
 
 type BuildMessage =
-    | Success
+    | Success of SHA
     | Failure
 
 type IngestBuildResult =
     | NoOp
-    | PerformBatchMerge of List<PullRequest>
+    | PerformBatchMerge of List<PullRequest> * SHA
     | BuildFailure
 
 let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBuildResult * MergeQueueState =
@@ -84,11 +84,11 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
         NoOp, MergeQueueState model
     | NoBatch, Success _ ->
         NoOp, MergeQueueState model
-    | Running runningBatch, Success ->
-        let result = PerformBatchMerge runningBatch
+    | Running runningBatch, Success targetHead ->
+        let result = PerformBatchMerge (runningBatch, targetHead)
         let state = MergeQueueState { model with runningBatch = Merging runningBatch }
         (result, state)
-    | Merging _, Success ->
+    | Merging _, Success _ ->
         NoOp, MergeQueueState model
 
 type MergeMessage =

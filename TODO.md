@@ -8,6 +8,7 @@ Done
 1.  generate command for merging PRs
 1.  generate command for building staging branch
 1.  handle updates to PRs
+1.  merge is able to fail if target head has changed since build
 
 Backlog
 1.  retrying, then
@@ -15,7 +16,7 @@ Backlog
 1.  accept status for PRs as well as staging branch builds
 1.  max batch size
 1.  paused
-
+1.  target branch is updated
 
 Icebox
 1.  dequeue an unstarted PR
