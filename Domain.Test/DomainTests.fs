@@ -5,9 +5,9 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 
 
-let private one = pullRequest (pullRequestId 1)
-let private two = pullRequest (pullRequestId 22)
-let private three = pullRequest (pullRequestId 333)
+let private one = pullRequest (pullRequestId 1) (sha "00001111")
+let private two = pullRequest (pullRequestId 22) (sha "00002222")
+let private three = pullRequest (pullRequestId 333) (sha "00003333")
 
 let private idleWithTwoPullRequests: MergeQueueState =
     emptyMergeQueue
@@ -23,7 +23,7 @@ let private runningBatchOfTwo: MergeQueueState =
 
 let private mergingBatchOfTwo: MergeQueueState =
     runningBatchOfTwo
-    |> ingestBuildUpdate BuildMessage.Success
+    |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
     |> snd
 
 [<Fact>]
@@ -153,7 +153,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Success)
+        runningQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
 
     result |> should equal (IngestBuildResult.PerformBatchMerge [ one; two ])
 
@@ -175,6 +175,23 @@ let ``Recieve message that batch failed the build when batch is running``() =
     |> should equal 2
 
 [<Fact>]
+let ``Recieve message that similar batch (same PRs, different SHAs) succeeded``() =
+    let runningQueue = runningBatchOfTwo
+
+    let result, state =
+        runningQueue
+        |> ingestBuildUpdate
+            (BuildMessage.Success
+                [ pullRequest one.id (sha "99998888")
+                  two ])
+
+    result |> should equal (IngestBuildResult.NoOp)
+
+    state
+    |> getDepth
+    |> should equal 2
+
+[<Fact>]
 let ``Recieve message that build failed when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
@@ -190,7 +207,7 @@ let ``Recieve message that build succeeded when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> ingestBuildUpdate (BuildMessage.Success)
+        idleQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -212,7 +229,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingQueue |> ingestBuildUpdate BuildMessage.Success
+        mergingQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -231,7 +248,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
 
     let finishedQueue =
         runningQueueDepthThree
-        |> ingestBuildUpdate (BuildMessage.Success)
+        |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
         |> snd
         |> ingestMergeUpdate (MergeMessage.Success)
         |> snd
@@ -274,40 +291,47 @@ let ``Merge failure message when batch is being merged``() =
     result |> should equal (IngestMergeResult.ReportMergeFailure [ one; two ])
 
 // PRs are updated
+
 [<Fact>]
 let ``The branch head for an enqueued PR is updated``() =
     let idle = idleWithTwoPullRequests
 
     let result, state =
-        idle |> updatePullRequestSha (pullRequestId 1)
+        idle |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
 
     result |> should equal UpdatePullRequestResult.NoOp
 
-    state |> should equal idle
+    let expectedState =
+        emptyMergeQueue
+        |> enqueue (pullRequest (pullRequestId 1) (sha "10101010"))
+        |> snd
+        |> enqueue (pullRequest (pullRequestId 22) (sha "00002222"))
+        |> snd
+
+    state |> should equal expectedState
 
 [<Fact>]
 let ``The branch head for a running PR is updated``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha (pullRequestId 1)
+        running |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
 
     result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], pullRequestId 1))
 
-    state
-    |> getDepth
-    |> should equal 1
+    let expectedState =
+        emptyMergeQueue
+        |> enqueue two
+        |> snd
 
-    state
-    |> getStatus
-    |> should equal Status.Idle
+    state |> should equal expectedState
 
 [<Fact>]
 let ``The branch head for a unknown PR is updated when batch is running``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha (pullRequestId 404)
+        running |> updatePullRequestSha (pullRequestId 404) (sha "40400404")
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -315,14 +339,59 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
 
 [<Fact>]
 let ``The branch head for an enqueued (but not running) PR is updated when batch is running``() =
-    let runningOnePrWaiting =
+    let runningBatchAndOnePrWaiting =
         runningBatchOfTwo
         |> enqueue three
         |> snd
 
     let result, state =
-        runningOnePrWaiting |> updatePullRequestSha (pullRequestId 333)
+        runningBatchAndOnePrWaiting |> updatePullRequestSha (pullRequestId 333) (sha "30303030")
 
     result |> should equal UpdatePullRequestResult.NoOp
 
-    state |> should equal runningOnePrWaiting
+    let expectedState =
+        runningBatchOfTwo
+        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030"))
+        |> snd
+
+    state |> should equal expectedState
+
+[<Fact>]
+let ``The branch head for an enqueued (but not batched) PR is updated when batch is merging``() =
+    let mergingBatchAndOnePrWaiting =
+        mergingBatchOfTwo
+        |> enqueue three
+        |> snd
+
+    let result, state =
+        mergingBatchAndOnePrWaiting |> updatePullRequestSha (pullRequestId 333) (sha "30303030")
+
+    result |> should equal UpdatePullRequestResult.NoOp
+
+    let expectedState =
+        mergingBatchOfTwo
+        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030"))
+        |> snd
+
+    state |> should equal expectedState
+
+[<Fact>]
+let ``The branch head for a batched PR is updated when batch is merging``() =
+    let mergingBatchAndOnePrWaiting =
+        mergingBatchOfTwo
+        |> enqueue three
+        |> snd
+
+    let result, state =
+        mergingBatchAndOnePrWaiting |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+
+    let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (pullRequestId 1))
+    result |> should equal expectedResult
+
+    // a fail fast and safe state
+    // we don't know which PRs were merged, so they should be removed from the queue
+    let expectedState =
+        emptyMergeQueue
+        |> enqueue three
+        |> snd
+    state |> should equal expectedState

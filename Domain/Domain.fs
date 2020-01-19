@@ -1,10 +1,13 @@
 ﻿module MergeQueue.Domain
 
 // Models
+type SHA = SHA of string
+
 type PullRequestID = PullRequestID of int
 
 type PullRequest =
-    { id: PullRequestID }
+    { id: PullRequestID
+      sha: SHA }
 
 type Batch = List<PullRequest>
 
@@ -26,12 +29,15 @@ let emptyMergeQueue: MergeQueueState =
         { queue = []
           runningBatch = NoBatch }
 
-let pullRequest (id: PullRequestID): PullRequest =
-    { id = id }
+let pullRequest (id: PullRequestID) (branchHead: SHA): PullRequest =
+    { id = id
+      sha = branchHead }
 
 let pullRequestId (value: int): PullRequestID =
     PullRequestID value
 
+let sha (value: string): SHA =
+    SHA value
 
 // Commands
 type EnqueueResult =
@@ -59,7 +65,7 @@ let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
     | NoBatch, queue -> Success queue, MergeQueueState { model with runningBatch = Running queue }
 
 type BuildMessage =
-    | Success
+    | Success of List<PullRequest>
     | Failure
 
 type IngestBuildResult =
@@ -75,13 +81,18 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
         BuildFailure, MergeQueueState { model with runningBatch = NoBatch }
     | Merging _, Failure ->
         NoOp, MergeQueueState model
-    | NoBatch, Success ->
+    | NoBatch, Success _ ->
         NoOp, MergeQueueState model
-    | Running batch, Success ->
-        let result = PerformBatchMerge batch
-        let state = MergeQueueState { model with runningBatch = Merging batch }
-        (result, state)
-    | Merging _, Success ->
+    | Running runningBatch, Success builtBatch ->
+        let validSuccess = (runningBatch = builtBatch)
+        match validSuccess with
+        | true ->
+            let result = PerformBatchMerge runningBatch
+            let state = MergeQueueState { model with runningBatch = Merging runningBatch }
+            (result, state)
+        | false ->
+            (NoOp, MergeQueueState model)
+    | Merging _, Success _ ->
         NoOp, MergeQueueState model
 
 type MergeMessage =
@@ -113,10 +124,18 @@ let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMer
 type UpdatePullRequestResult =
     | NoOp
     | AbortRunningBatch of Batch * PullRequestID
+    | AbortMergingBatch of Batch * PullRequestID
 
-let updatePullRequestSha (id: PullRequestID) (MergeQueueState model): UpdatePullRequestResult * MergeQueueState =
-    match model.runningBatch, model.queue with
-    | Running batch, _ ->
+let private updateShaForEnqueuedPr (newValue: SHA) (id: PullRequestID) (model: MergeQueueModel): List<PullRequest> =
+    let updateCorrespondingSha pr =
+        if pr.id = id then { pr with sha = newValue }
+        else pr
+
+    model.queue |> List.map updateCorrespondingSha
+
+let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState model): UpdatePullRequestResult * MergeQueueState =
+    match model.runningBatch with
+    | Running batch ->
         let running =
             batch
             |> List.map (fun pr -> pr.id)
@@ -133,10 +152,31 @@ let updatePullRequestSha (id: PullRequestID) (MergeQueueState model): UpdatePull
                       queue = newQueue
                       runningBatch = NoBatch }
         else
-            NoOp, MergeQueueState model
-    | _ ->
-        NoOp, MergeQueueState model
+            let newQueue = model |> updateShaForEnqueuedPr newValue id
+            let newModel = { model with queue = newQueue }
+            NoOp, MergeQueueState newModel
+    | NoBatch ->
+        let newQueue = model |> updateShaForEnqueuedPr newValue id
+        let newModel = { model with queue = newQueue }
+        NoOp, MergeQueueState newModel
+    | Merging batch ->
+        let merging =
+            batch
+            |> List.map (fun pr -> pr.id)
+            |> List.contains id
 
+        if merging then
+            // fast fail the current batch, an unsafe PR could be about to merge into target
+            let newQueue = model.queue |> List.filter (fun n -> List.contains n batch |> not)
+            AbortMergingBatch(batch, id),
+            MergeQueueState
+                { model with
+                      queue = newQueue
+                      runningBatch = NoBatch }
+        else
+            let newQueue = model |> updateShaForEnqueuedPr newValue id
+            let newModel = { model with queue = newQueue }
+            NoOp, MergeQueueState newModel
 
 // Queries
 let getDepth (MergeQueueState model): int =

@@ -8,6 +8,7 @@ Done
 1.  generate command for merging PRs
 1.  generate command for building staging branch
 1.  handle updates to PRs
+1.  build command capable of precise updates
 
 Backlog
 1.  merge batch command capable of precise merging
@@ -23,3 +24,4 @@ Icebox
 1.  dequeue a running PR
 1.  priority?
 1.  list events by PR
+1.  improve robustness around missed messages? when a build goes quiet?
