@@ -13,6 +13,12 @@ Done
 1.  retrying
 
 Backlog
+1.  preview batches
+1.  check reviews accepted of PR when enqueue
+1.  check GitHub build status of PR when enqueue
+    1.  ie. green check/red cross
+1.  check target branch of PR matches Merge Queue target branch
+1.  priority
 1.  accept status for PRs as well as staging branch builds
 1.  max batch size
 1.  paused
@@ -21,7 +27,6 @@ Backlog
 Icebox
 1.  dequeue an unstarted PR
 1.  dequeue a running PR
-1.  priority?
 1.  list events by PR
 1.  improve robustness around missed messages? when a build goes quiet?
 1.  handle mismatch between build/merge batches and merge queue state?
