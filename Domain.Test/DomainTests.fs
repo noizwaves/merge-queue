@@ -45,6 +45,10 @@ let ``Empty queue``() =
     |> previewBatches
     |> should be Empty
 
+    queue
+    |> peekSinBin
+    |> should be Empty
+
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let (result, state) =
@@ -225,6 +229,10 @@ let ``Recieve message that batch failed the build when batch is running``() =
     |> peekCurrentBatch
     |> should equal None
 
+    state
+    |> peekSinBin
+    |> should be Empty
+
 [<Fact>]
 let ``Single PR batches that fail to build are dequeued``() =
     let runningBatchOfOne =
@@ -241,6 +249,14 @@ let ``Single PR batches that fail to build are dequeued``() =
 
     state
     |> peekCurrentQueue
+    |> should be Empty
+
+    state
+    |> peekCurrentBatch
+    |> should equal None
+
+    state
+    |> peekSinBin
     |> should be Empty
 
 [<Fact>]
@@ -344,6 +360,9 @@ let ``Merge failure message when batch is being merged``() =
 
 // PRs are updated
 
+// updated PRs should be removed from the queue until their builds pass again
+// at which point they are added to the end of the queue again
+
 [<Fact>]
 let ``The branch head for an enqueued PR is updated``() =
     let idle = idleWithTwoPullRequests
@@ -353,14 +372,14 @@ let ``The branch head for an enqueued PR is updated``() =
 
     result |> should equal UpdatePullRequestResult.NoOp
 
-    let expectedState =
-        emptyMergeQueue
-        |> enqueue (pullRequest (pullRequestId 1) (sha "10101010") [ passedCircleCI ])
-        |> snd
-        |> enqueue (pullRequest (pullRequestId 22) (sha "00002222") [ passedCircleCI ])
-        |> snd
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
 
-    state |> should equal expectedState
+    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
+    state
+    |> peekSinBin
+    |> should equal [ { one with sha = (sha "10101010") } ]
 
 [<Fact>]
 let ``The branch head for a running PR is updated``() =
@@ -371,12 +390,14 @@ let ``The branch head for a running PR is updated``() =
 
     result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], pullRequestId 1))
 
-    let expectedState =
-        emptyMergeQueue
-        |> enqueue two
-        |> snd
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
 
-    state |> should equal expectedState
+    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
+    state
+    |> peekSinBin
+    |> should equal [ { one with sha = (sha "10101010") } ]
 
 [<Fact>]
 let ``The branch head for a unknown PR is updated when batch is running``() =
@@ -401,12 +422,14 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
 
     result |> should equal UpdatePullRequestResult.NoOp
 
-    let expectedState =
-        runningBatchOfTwo
-        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030") [ passedCircleCI ])
-        |> snd
+    state
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
 
-    state |> should equal expectedState
+    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
+    state
+    |> peekSinBin
+    |> should equal [ { three with sha = (sha "30303030") } ]
 
 [<Fact>]
 let ``The branch head for an enqueued (but not batched) PR is updated when batch is merging``() =
@@ -420,12 +443,14 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
 
     result |> should equal UpdatePullRequestResult.NoOp
 
-    let expectedState =
-        mergingBatchOfTwo
-        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030") [ passedCircleCI ])
-        |> snd
+    state
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
 
-    state |> should equal expectedState
+    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
+    state
+    |> peekSinBin
+    |> should equal [ { three with sha = (sha "30303030") } ]
 
 [<Fact>]
 let ``The branch head for a batched PR is updated when batch is merging``() =
@@ -440,13 +465,77 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
     let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (pullRequestId 1))
     result |> should equal expectedResult
 
+    // Future improvement here!
     // a fail fast and safe state
     // we don't know which PRs were merged, so they should be removed from the queue
-    let expectedState =
-        emptyMergeQueue
-        |> enqueue three
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ three ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+// Updated PR commit statuses come in
+
+[<Fact>]
+let ``An updated PR with successful build status is re-enqueued at the bottom``() =
+    let awaitingStatusInfo =
+        idleWithTwoPullRequests
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
         |> snd
-    state |> should equal expectedState
+
+    let state =
+        awaitingStatusInfo |> updateStatuses (pullRequestId 1) (sha "10101010") [ passedCircleCI ]
+
+    state
+    |> peekCurrentQueue
+    |> should equal
+           [ two
+             (pullRequest (pullRequestId 1) (sha "10101010") [ passedCircleCI ]) ]
+
+[<Fact>]
+let ``An updated PR with failing build status is not re-enqueued``() =
+    let awaitingStatusInfo =
+        idleWithTwoPullRequests
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+        |> snd
+
+    let state =
+        awaitingStatusInfo |> updateStatuses (pullRequestId 1) (sha "10101010") [ notPassedCircleCI ]
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
+
+[<Fact>]
+let ``Updates for a PR not in the sin bin is ignored``() =
+    let awaitingStatusInfo =
+        idleWithTwoPullRequests
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+        |> snd
+
+    let state =
+        awaitingStatusInfo |> updateStatuses (pullRequestId 333) (sha "10101010") [ passedCircleCI ]
+
+    state |> should equal awaitingStatusInfo
+
+[<Fact>]
+let ``Old updates for a PR with many SHA updates are ignored``() =
+    let awaitingStatusInfo =
+        idleWithTwoPullRequests
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+        |> snd
+        |> updatePullRequestSha (pullRequestId 1) (sha "11001100")
+        |> snd
+
+    let state =
+        awaitingStatusInfo |> updateStatuses (pullRequestId 1) (sha "10101010") [ passedCircleCI ]
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
 
 // Failed batches are bisected
 
