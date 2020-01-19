@@ -54,7 +54,7 @@ let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * 
     | false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest ] }
 
 type StartBatchResult =
-    | Success of List<PullRequest>
+    | PerformBatchBuild of List<PullRequest>
     | AlreadyRunning
     | EmptyQueue
 
@@ -63,7 +63,7 @@ let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
     | _, [] -> EmptyQueue, MergeQueueState model
     | Running _, _ -> AlreadyRunning, MergeQueueState model
     | Merging _, _ -> AlreadyRunning, MergeQueueState model
-    | NoBatch, queue -> Success queue, MergeQueueState { model with runningBatch = Running queue }
+    | NoBatch, queue -> PerformBatchBuild queue, MergeQueueState { model with runningBatch = Running queue }
 
 type BuildMessage =
     | Success of SHA

@@ -95,7 +95,7 @@ let ``Start a batch``() =
     let (result, state) =
         idleWithTwoPullRequests |> startBatch
 
-    result |> should equal (StartBatchResult.Success [ one; two ])
+    result |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
 
     state
     |> getDepth
@@ -243,7 +243,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let (result, _) =
         finishedQueue |> startBatch
 
-    result |> should equal (StartBatchResult.Success [ three ])
+    result |> should equal (StartBatchResult.PerformBatchBuild [ three ])
 
 // Batch Merge Message ingestion
 
