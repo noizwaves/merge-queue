@@ -93,7 +93,8 @@ type BuildMessage =
 type IngestBuildResult =
     | NoOp
     | PerformBatchMerge of List<PullRequest> * SHA
-    | BuildFailure
+    | BuildFailureWithRetry of List<PullRequest>
+    | BuildFailureNoRetry of List<PullRequest>
 
 let private bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
@@ -111,7 +112,7 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
         | None ->
             // no way to bisect -> nothing more to attempt
             let queue = model.queue |> removeFromQueue batch
-            BuildFailure,
+            BuildFailureNoRetry batch,
             MergeQueueState
                 { model with
                       queue = queue
@@ -124,7 +125,7 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
                     if List.contains pr first then (pr, a @ [ true ])
                     elif List.contains pr second then (pr, a @ [ false ])
                     else pr, a)
-            BuildFailure,
+            BuildFailureWithRetry batch,
             MergeQueueState
                 { model with
                       queue = newQueue
