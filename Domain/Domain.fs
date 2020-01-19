@@ -5,9 +5,18 @@ type SHA = SHA of string
 
 type PullRequestID = PullRequestID of int
 
+type CommitStatusState =
+    | Success
+    | NoSuccess
+
+type CommitStatus =
+    { context: string
+      state: CommitStatusState }
+
 type PullRequest =
     { id: PullRequestID
-      sha: SHA }
+      sha: SHA
+      statuses: List<CommitStatus> }
 
 type Batch = List<PullRequest>
 
@@ -34,9 +43,10 @@ let emptyMergeQueue: MergeQueueState =
         { queue = []
           runningBatch = NoBatch }
 
-let pullRequest (id: PullRequestID) (branchHead: SHA): PullRequest =
+let pullRequest (id: PullRequestID) (branchHead: SHA) (commitStatuses: List<CommitStatus>): PullRequest =
     { id = id
-      sha = branchHead }
+      sha = branchHead
+      statuses = commitStatuses }
 
 let pullRequestId (value: int): PullRequestID =
     PullRequestID value
@@ -44,6 +54,9 @@ let pullRequestId (value: int): PullRequestID =
 let sha (value: string): SHA =
     SHA value
 
+let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
+    { context = context
+      state = state }
 
 // misc
 let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
@@ -52,17 +65,25 @@ let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue):
 // Commands
 type EnqueueResult =
     | Success
+    | RejectedNeedAllStatusesSuccess
     | AlreadyEnqueued
 
 let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * MergeQueueState =
+    let passedBuild =
+        match pullRequest.statuses with
+        | [] -> false
+        | statuses ->
+            statuses |> List.forall (fun s -> s.state = CommitStatusState.Success)
+
     let alreadyEnqueued =
         model.queue
         |> List.map fst
         |> List.contains pullRequest
 
-    match alreadyEnqueued with
-    | true -> AlreadyEnqueued, MergeQueueState model
-    | false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest, [] ] }
+    match passedBuild, alreadyEnqueued with
+    | false, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
+    | _, true -> AlreadyEnqueued, MergeQueueState model
+    | _, false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest, [] ] }
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>

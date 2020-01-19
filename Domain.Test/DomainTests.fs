@@ -4,11 +4,13 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 
+let private passedCircleCI = commitStatus "circleci" CommitStatusState.Success
+let private notPassedCircleCI = commitStatus "circleci" CommitStatusState.NoSuccess
 
-let private one = pullRequest (pullRequestId 1) (sha "00001111")
-let private two = pullRequest (pullRequestId 22) (sha "00002222")
-let private three = pullRequest (pullRequestId 333) (sha "00003333")
-let private four = pullRequest (pullRequestId 4444) (sha "00004444")
+let private one = pullRequest (pullRequestId 1) (sha "00001111") [ passedCircleCI ]
+let private two = pullRequest (pullRequestId 22) (sha "00002222") [ passedCircleCI ]
+let private three = pullRequest (pullRequestId 333) (sha "00003333") [ passedCircleCI ]
+let private four = pullRequest (pullRequestId 4444) (sha "00004444") [ passedCircleCI ]
 
 let private idleWithTwoPullRequests: MergeQueueState =
     emptyMergeQueue
@@ -61,6 +63,26 @@ let ``Enqueue a Pull Request``() =
     state
     |> previewBatches
     |> should equal [ [ one ] ]
+
+[<Fact>]
+let ``Enqueue a Pull Request that has failed a build step is rejected``() =
+    let failingPr = pullRequest (pullRequestId 1) (sha "00001111") [ notPassedCircleCI ]
+    let (result, state) =
+        emptyMergeQueue |> enqueue failingPr
+
+    result |> should equal EnqueueResult.RejectedNeedAllStatusesSuccess
+
+    state |> should equal emptyMergeQueue
+
+[<Fact>]
+let ``Enqueuing a Pull Request that has no build statuses is rejected``() =
+    let failingPr = pullRequest (pullRequestId 1) (sha "00001111") []
+    let (result, state) =
+        emptyMergeQueue |> enqueue failingPr
+
+    result |> should equal EnqueueResult.RejectedNeedAllStatusesSuccess
+
+    state |> should equal emptyMergeQueue
 
 [<Fact>]
 let ``Enqueue an already enqueued Pull Request``() =
@@ -333,9 +355,9 @@ let ``The branch head for an enqueued PR is updated``() =
 
     let expectedState =
         emptyMergeQueue
-        |> enqueue (pullRequest (pullRequestId 1) (sha "10101010"))
+        |> enqueue (pullRequest (pullRequestId 1) (sha "10101010") [ passedCircleCI ])
         |> snd
-        |> enqueue (pullRequest (pullRequestId 22) (sha "00002222"))
+        |> enqueue (pullRequest (pullRequestId 22) (sha "00002222") [ passedCircleCI ])
         |> snd
 
     state |> should equal expectedState
@@ -381,7 +403,7 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
 
     let expectedState =
         runningBatchOfTwo
-        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030"))
+        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030") [ passedCircleCI ])
         |> snd
 
     state |> should equal expectedState
@@ -400,7 +422,7 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
 
     let expectedState =
         mergingBatchOfTwo
-        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030"))
+        |> enqueue (pullRequest (pullRequestId 333) (sha "30303030") [ passedCircleCI ])
         |> snd
 
     state |> should equal expectedState

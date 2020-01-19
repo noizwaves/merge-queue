@@ -12,11 +12,11 @@ Done
 1.  bisecting
 1.  retrying
 1.  preview batches
+1.  check GitHub build status of PR when enqueue
 
 Backlog
+1.  prevent updated branches from starting until statuses have succeeded again
 1.  check reviews accepted of PR when enqueue
-1.  check GitHub build status of PR when enqueue
-    1.  ie. green check/red cross
 1.  check target branch of PR matches Merge Queue target branch
 1.  priority
 1.  accept status for PRs as well as staging branch builds
