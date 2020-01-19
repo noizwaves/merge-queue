@@ -39,6 +39,10 @@ let ``Empty queue``() =
     |> peekCurrentBatch
     |> should equal None
 
+    queue
+    |> previewBatches
+    |> should be Empty
+
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let (result, state) =
@@ -49,6 +53,14 @@ let ``Enqueue a Pull Request``() =
     state
     |> peekCurrentQueue
     |> should equal [ one ]
+
+    state
+    |> peekCurrentBatch
+    |> should equal None
+
+    state
+    |> previewBatches
+    |> should equal [ [ one ] ]
 
 [<Fact>]
 let ``Enqueue an already enqueued Pull Request``() =
@@ -65,6 +77,10 @@ let ``Enqueue an already enqueued Pull Request``() =
     state
     |> peekCurrentQueue
     |> should equal [ one ]
+
+    state
+    |> previewBatches
+    |> should equal [ [ one ] ]
 
 [<Fact>]
 let ``Enqueue multiple Pull Requests``() =
@@ -85,7 +101,11 @@ let ``Enqueue multiple Pull Requests``() =
 
     secondState
     |> peekCurrentQueue
-    |> should equal [one; two]
+    |> should equal [ one; two ]
+
+    secondState
+    |> previewBatches
+    |> should equal [ [ one; two ] ]
 
 [<Fact>]
 let ``Start a batch``() =
@@ -96,11 +116,15 @@ let ``Start a batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [one; two]
+    |> should equal [ one; two ]
 
     state
     |> peekCurrentBatch
-    |> should equal (Some [one; two])
+    |> should equal (Some [ one; two ])
+
+    state
+    |> previewBatches
+    |> should equal [ [ one; two ] ]
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
@@ -114,11 +138,11 @@ let ``Attempt to start a second concurrent batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [one; two]
+    |> should equal [ one; two ]
 
     state
     |> peekCurrentBatch
-    |> should equal (Some [one; two])
+    |> should equal (Some [ one; two ])
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch during merging``() =
@@ -156,11 +180,11 @@ let ``Recieve message that batch successfully builds when batch is running``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [one; two]
-    
+    |> should equal [ one; two ]
+
     state
     |> peekCurrentBatch
-    |> should equal (Some [one; two])
+    |> should equal (Some [ one; two ])
 
 [<Fact>]
 let ``Recieve message that batch failed the build when batch is running``() =
@@ -169,12 +193,12 @@ let ``Recieve message that batch failed the build when batch is running``() =
     let result, state =
         runningQueue |> ingestBuildUpdate BuildMessage.Failure
 
-    result |> should equal (IngestBuildResult.BuildFailureWithRetry [one; two])
+    result |> should equal (IngestBuildResult.BuildFailureWithRetry [ one; two ])
 
     state
     |> peekCurrentQueue
-    |> should equal [one; two]
-    
+    |> should equal [ one; two ]
+
     state
     |> peekCurrentBatch
     |> should equal None
@@ -248,6 +272,12 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         |> enqueue three
         |> snd
 
+    runningQueueDepthThree
+    |> previewBatches
+    |> should equal
+           [ [ one; two ]
+             [ three ] ]
+
     let finishedQueue =
         runningQueueDepthThree
         |> ingestBuildUpdate (BuildMessage.Success(sha "12345678"))
@@ -257,16 +287,12 @@ let ``A Pull Request enqueued during running batch is included in the next batch
 
     finishedQueue
     |> peekCurrentQueue
-    |> should equal [three]
+    |> should equal [ three ]
 
-    let (result, state) =
+    let (result, _) =
         finishedQueue |> startBatch
 
     result |> should equal (StartBatchResult.PerformBatchBuild [ three ])
-    
-    state
-    |> peekCurrentBatch
-    |> should equal (Some [ three ])
 
 // Batch Merge Message ingestion
 
@@ -416,20 +442,29 @@ let ``Failed batches are bisected upon build failure``() =
         |> snd
 
     // next batch contains only `one` and `two`
+    failedBuildOfFour
+    |> previewBatches
+    |> should equal
+           [ [ one; two ]
+             [ three; four ] ]
+
     let firstResult, firstState =
         failedBuildOfFour |> startBatch
 
     firstResult |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
-
-    firstState
-    |> peekCurrentQueue
-    |> should equal [ one; two; three; four ]
 
     // fail the first bisected batch
     let _, bisectedFails =
         firstState |> ingestBuildUpdate BuildMessage.Failure
 
     // next batch contains only `one`
+    bisectedFails
+    |> previewBatches
+    |> should equal
+           [ [ one ]
+             [ two ]
+             [ three; four ] ]
+
     let secondResult, secondState =
         bisectedFails |> startBatch
 

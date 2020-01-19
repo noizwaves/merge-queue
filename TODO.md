@@ -11,9 +11,9 @@ Done
 1.  merge is able to fail if target head has changed since build
 1.  bisecting
 1.  retrying
+1.  preview batches
 
 Backlog
-1.  preview batches
 1.  check reviews accepted of PR when enqueue
 1.  check GitHub build status of PR when enqueue
     1.  ie. green check/red cross

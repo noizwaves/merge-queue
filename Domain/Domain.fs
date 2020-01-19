@@ -26,6 +26,7 @@ type private MergeQueueModel =
 
 type MergeQueueState = private MergeQueueState of MergeQueueModel
 
+type ExecutionPlan = List<Batch>
 
 // Constructors
 let emptyMergeQueue: MergeQueueState =
@@ -231,8 +232,33 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
 let peekCurrentQueue (MergeQueueState model): List<PullRequest> =
     model.queue |> List.map fst
 
-let peekCurrentBatch (MergeQueueState model): Option<List<PullRequest>> =
+let peekCurrentBatch (MergeQueueState model): Option<Batch> =
     match model.runningBatch with
     | NoBatch -> None
     | Running batch -> Some batch
     | Merging batch -> Some batch
+
+let rec private splitIntoBatches (queue: AttemptQueue): List<Batch> =
+    match queue with
+    | [] ->
+        []
+    | _ ->
+        let batch = selectBatch queue
+        let remainder = removeFromQueue batch queue
+        batch :: (splitIntoBatches remainder)
+
+let previewBatches (MergeQueueState model): ExecutionPlan =
+    let current =
+        match model.runningBatch with
+        | NoBatch -> None
+        | Running batch -> Some batch
+        | Merging batch -> Some batch
+
+    let remainder =
+        match current with
+        | None -> model.queue
+        | Some batch -> removeFromQueue batch model.queue
+
+    match current with
+    | None -> remainder |> splitIntoBatches
+    | Some batch -> batch :: (remainder |> splitIntoBatches)
