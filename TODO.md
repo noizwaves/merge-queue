@@ -8,10 +8,8 @@ Done
 1.  generate command for merging PRs
 1.  generate command for building staging branch
 1.  handle updates to PRs
-1.  build command capable of precise updates
 
 Backlog
-1.  merge batch command capable of precise merging
 1.  retrying, then
 1.  bisecting
 1.  accept status for PRs as well as staging branch builds
@@ -25,3 +23,5 @@ Icebox
 1.  priority?
 1.  list events by PR
 1.  improve robustness around missed messages? when a build goes quiet?
+1.  handle mismatch between build/merge batches and merge queue state?
+    1. this is in some kind of lost message scenario, domain should worry about this?

@@ -66,7 +66,7 @@ let startBatch (MergeQueueState model): StartBatchResult * MergeQueueState =
     | NoBatch, queue -> Success queue, MergeQueueState { model with runningBatch = Running queue }
 
 type BuildMessage =
-    | Success of List<PullRequest>
+    | Success
     | Failure
 
 type IngestBuildResult =
@@ -84,31 +84,25 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
         NoOp, MergeQueueState model
     | NoBatch, Success _ ->
         NoOp, MergeQueueState model
-    | Running runningBatch, Success builtBatch ->
-        let validSuccess = (runningBatch = builtBatch)
-        match validSuccess with
-        | true ->
-            let result = PerformBatchMerge runningBatch
-            let state = MergeQueueState { model with runningBatch = Merging runningBatch }
-            (result, state)
-        | false ->
-            (NoOp, MergeQueueState model)
-    | Merging _, Success _ ->
+    | Running runningBatch, Success ->
+        let result = PerformBatchMerge runningBatch
+        let state = MergeQueueState { model with runningBatch = Merging runningBatch }
+        (result, state)
+    | Merging _, Success ->
         NoOp, MergeQueueState model
 
 type MergeMessage =
-    | Success of List<PullRequest>
+    | Success
     | Failure
 
 type IngestMergeResult =
     | NoOp
     | MergeComplete of List<PullRequest>
     | ReportMergeFailure of List<PullRequest>
-    | ReportUnexpectedMerge of List<PullRequest> * List<PullRequest>
 
 let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * MergeQueueState =
     match model.runningBatch, message with
-    | Merging merging, MergeMessage.Success merged ->
+    | Merging merging, MergeMessage.Success ->
         let newQueue = model.queue |> List.filter (fun n -> List.contains n merging |> not)
 
         let state =
@@ -117,11 +111,10 @@ let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMer
                       queue = newQueue
                       runningBatch = NoBatch }
 
-        if merged = merging then IngestMergeResult.MergeComplete merging, state
-        else IngestMergeResult.ReportUnexpectedMerge(merging, merged), state
+        MergeComplete merging, state
     | Merging batch, MergeMessage.Failure ->
         let state = MergeQueueState { model with runningBatch = NoBatch }
-        IngestMergeResult.ReportMergeFailure batch, state
+        ReportMergeFailure batch, state
     | _, _ ->
         IngestMergeResult.NoOp, MergeQueueState model
 

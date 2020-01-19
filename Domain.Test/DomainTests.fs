@@ -23,7 +23,7 @@ let private runningBatchOfTwo: MergeQueueState =
 
 let private mergingBatchOfTwo: MergeQueueState =
     runningBatchOfTwo
-    |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
+    |> ingestBuildUpdate BuildMessage.Success
     |> snd
 
 [<Fact>]
@@ -153,7 +153,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
+        runningQueue |> ingestBuildUpdate BuildMessage.Success
 
     result |> should equal (IngestBuildResult.PerformBatchMerge [ one; two ])
 
@@ -166,26 +166,9 @@ let ``Recieve message that batch failed the build when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Failure)
+        runningQueue |> ingestBuildUpdate BuildMessage.Failure
 
     result |> should equal IngestBuildResult.BuildFailure
-
-    state
-    |> getDepth
-    |> should equal 2
-
-[<Fact>]
-let ``Recieve message that similar batch (same PRs, different SHAs) succeeded``() =
-    let runningQueue = runningBatchOfTwo
-
-    let result, state =
-        runningQueue
-        |> ingestBuildUpdate
-            (BuildMessage.Success
-                [ pullRequest one.id (sha "99998888")
-                  two ])
-
-    result |> should equal (IngestBuildResult.NoOp)
 
     state
     |> getDepth
@@ -207,7 +190,7 @@ let ``Recieve message that build succeeded when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
+        idleQueue |> ingestBuildUpdate BuildMessage.Success
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -229,7 +212,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingQueue |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
+        mergingQueue |> ingestBuildUpdate BuildMessage.Success
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -248,9 +231,9 @@ let ``A Pull Request enqueued during running batch is included in the next batch
 
     let finishedQueue =
         runningQueueDepthThree
-        |> ingestBuildUpdate (BuildMessage.Success [ one; two ])
+        |> ingestBuildUpdate BuildMessage.Success
         |> snd
-        |> ingestMergeUpdate (MergeMessage.Success [ one; two ])
+        |> ingestMergeUpdate MergeMessage.Success
         |> snd
 
     finishedQueue
@@ -269,29 +252,9 @@ let ``Merge success message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> ingestMergeUpdate (MergeMessage.Success [ one; two ])
+        mergingQueue |> ingestMergeUpdate MergeMessage.Success
 
     result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
-
-    state |> should equal emptyMergeQueue
-
-[<Fact>]
-let ``Merge success message during merging but with different SHAs``() =
-    let mergingQueue = mergingBatchOfTwo
-
-    let result, state =
-        mergingQueue
-        |> ingestMergeUpdate
-            (MergeMessage.Success
-                [ pullRequest one.id (sha "10101010")
-                  two ])
-
-    result
-    |> should equal
-           (IngestMergeResult.ReportUnexpectedMerge
-               ([ one; two ],
-                [ pullRequest one.id (sha "10101010")
-                  two ]))
 
     state |> should equal emptyMergeQueue
 
