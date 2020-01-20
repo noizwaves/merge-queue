@@ -4,7 +4,7 @@ A theoretical merge queue implementation
 
 ## Requirements
 
-dotnet core 3.1.101
+1.  dotnet core 3.1.101
 
 ## Using
 

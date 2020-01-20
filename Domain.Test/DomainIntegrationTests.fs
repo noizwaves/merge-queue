@@ -18,7 +18,6 @@ let private seven = pullRequest (pullRequestId 7777) (sha "00007777") [ passedCi
 let private eight = pullRequest (pullRequestId 8888) (sha "00008888") [ passedCircleCI ]
 
 
-
 [<Fact>]
 let ``Realistic workflow``() =
     // 1. Four enqueued but not started
