@@ -64,21 +64,82 @@ let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
     { context = context
       state = state }
 
-// misc
+// Domain Logic
 let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
     queue |> List.filter (fun (pr, _) -> List.contains pr toRemove |> not)
-
-// Commands
-type EnqueueResult =
-    | Success
-    | RejectedNeedAllStatusesSuccess
-    | AlreadyEnqueued
 
 let private passesBuild (pullRequest: PullRequest): bool =
     match pullRequest.statuses with
     | [] -> false
     | statuses ->
         statuses |> List.forall (fun s -> s.state = CommitStatusState.Success)
+
+let private enqueuePullRequest (pullRequest: PullRequest) (queue: AttemptQueue): AttemptQueue =
+    queue @ [ pullRequest, [] ]
+
+let private pickNextBatch (queue: AttemptQueue): Batch =
+    match queue with
+    | [] -> failwith "Should not be called on an empty queue"
+    | head :: tail ->
+        let matching =
+            tail |> List.filter (fun (_, a) -> a = (head |> snd))
+
+        head :: matching |> List.map fst
+
+let private bisect (batch: Batch): Option<Batch * Batch> =
+    if List.length batch <= 1 then
+        None
+    else
+        let midpoint = (List.length batch) / 2
+        List.splitAt midpoint batch |> Some
+
+let private completeBuild (batch: Batch): CurrentBatch =
+    Merging batch
+
+let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
+    let newQueue = queue |> removeFromQueue batch
+    newQueue, NoBatch
+
+let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue) =
+    let newQueue =
+        queue
+        |> List.map (fun (pr, a) ->
+            if List.contains pr first then (pr, a @ [ true ])
+            elif List.contains pr second then (pr, a @ [ false ])
+            else pr, a)
+    newQueue, NoBatch
+
+let private completeMerge (batch: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
+    let newQueue = queue |> removeFromQueue batch
+    newQueue, NoBatch
+
+let private failMerge (_batch: Batch): CurrentBatch =
+    NoBatch
+
+let private movePullRequestToSinBin (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
+    // get PR (and update SHA)
+    let updatedPr =
+        queue
+        |> List.tryFind (fun (pr, _) -> pr.id = id)
+        |> Option.map (fun (pr, _) -> { pr with sha = newValue })
+
+    // move to the sin bin
+    let newSinBin =
+        match updatedPr with
+        | None -> sinBin
+        | Some item -> sinBin @ [ item ]
+
+    // from the queue
+    let newQueue =
+        queue |> List.filter (fun (pr, _) -> pr.id <> id)
+
+    newQueue, newSinBin
+
+// Commands
+type EnqueueResult =
+    | Success
+    | RejectedNeedAllStatusesSuccess
+    | AlreadyEnqueued
 
 let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * State =
     let passedBuild = pullRequest |> passesBuild
@@ -91,21 +152,12 @@ let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * 
     match passedBuild, alreadyEnqueued with
     | false, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
     | _, true -> AlreadyEnqueued, MergeQueueState model
-    | _, false -> Success, MergeQueueState { model with queue = model.queue @ [ pullRequest, [] ] }
+    | _, false -> Success, MergeQueueState { model with queue = enqueuePullRequest pullRequest model.queue }
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>
     | AlreadyRunning
     | EmptyQueue
-
-let private selectBatch (queue: AttemptQueue): Batch =
-    match queue with
-    | [] -> failwith "Should not be called on an empty queue"
-    | head :: tail ->
-        let matching =
-            tail |> List.filter (fun (_, a) -> a = (head |> snd))
-
-        head :: matching |> List.map fst
 
 let startBatch (MergeQueueState model): StartBatchResult * State =
     match model.batch, model.queue with
@@ -113,7 +165,7 @@ let startBatch (MergeQueueState model): StartBatchResult * State =
     | Running _, _ -> AlreadyRunning, MergeQueueState model
     | Merging _, _ -> AlreadyRunning, MergeQueueState model
     | NoBatch, queue ->
-        let batch = queue |> selectBatch
+        let batch = queue |> pickNextBatch
         PerformBatchBuild batch, MergeQueueState { model with batch = Running batch }
 
 type BuildMessage =
@@ -123,52 +175,43 @@ type BuildMessage =
 type IngestBuildResult =
     | NoOp
     | PerformBatchMerge of List<PullRequest> * SHA
-    | BuildFailureWithRetry of List<PullRequest>
-    | BuildFailureNoRetry of List<PullRequest>
-
-let private bisect (batch: Batch): Option<Batch * Batch> =
-    if List.length batch <= 1 then
-        None
-    else
-        let midpoint = (List.length batch) / 2
-        List.splitAt midpoint batch |> Some
+    | ReportBuildFailureWithRetry of List<PullRequest>
+    | ReportBuildFailureNoRetry of List<PullRequest>
 
 let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBuildResult * State =
     match model.batch, message with
-    | NoBatch, Failure ->
-        NoOp, MergeQueueState { model with batch = NoBatch } // The record update doesn't change the value...
     | Running batch, Failure ->
         match bisect batch with
         | None ->
-            // no way to bisect -> nothing more to attempt
-            let queue = model.queue |> removeFromQueue batch
-            BuildFailureNoRetry batch,
-            MergeQueueState
-                { model with
-                      queue = queue
-                      batch = NoBatch }
-        | Some(first, second) ->
-            // update attempts
-            let newQueue =
-                model.queue
-                |> List.map (fun (pr, a) ->
-                    if List.contains pr first then (pr, a @ [ true ])
-                    elif List.contains pr second then (pr, a @ [ false ])
-                    else pr, a)
-            BuildFailureWithRetry batch,
-            MergeQueueState
+            let newQueue, newBatch = model.queue |> failWithoutRetry batch
+
+            let newModel =
                 { model with
                       queue = newQueue
-                      batch = NoBatch }
+                      batch = newBatch }
+            ReportBuildFailureNoRetry batch, MergeQueueState newModel
 
+        | Some(first, second) ->
+            let newQueue, newBatch = model.queue |> failWithRetry first second
+
+            let newModel =
+                { model with
+                      queue = newQueue
+                      batch = newBatch }
+            ReportBuildFailureWithRetry batch, MergeQueueState newModel
+
+    | Running succeeded, Success targetHead ->
+        let newBatch = completeBuild succeeded
+        let newState = MergeQueueState { model with batch = newBatch }
+        let result = PerformBatchMerge(succeeded, targetHead)
+        result, newState
+
+    | NoBatch, Failure ->
+        NoOp, MergeQueueState model
     | Merging _, Failure ->
         NoOp, MergeQueueState model
     | NoBatch, Success _ ->
         NoOp, MergeQueueState model
-    | Running runningBatch, Success targetHead ->
-        let result = PerformBatchMerge(runningBatch, targetHead)
-        let state = MergeQueueState { model with batch = Merging runningBatch }
-        (result, state)
     | Merging _, Success _ ->
         NoOp, MergeQueueState model
 
@@ -183,19 +226,19 @@ type IngestMergeResult =
 
 let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * State =
     match model.batch, message with
-    | Merging merging, MergeMessage.Success ->
-        let newQueue = model.queue |> removeFromQueue merging
+    | Merging merged, MergeMessage.Success ->
+        let newQueue, newBatch = model.queue |> completeMerge merged
 
-        let state =
-            MergeQueueState
-                { model with
-                      queue = newQueue
-                      batch = NoBatch }
+        let newModel =
+            { model with
+                  queue = newQueue
+                  batch = newBatch }
 
-        MergeComplete merging, state
+        MergeComplete merged, MergeQueueState newModel
     | Merging batch, MergeMessage.Failure ->
-        let state = MergeQueueState { model with batch = NoBatch }
-        ReportMergeFailure batch, state
+        let newBatch = failMerge batch
+        let newModel = { model with batch = newBatch }
+        ReportMergeFailure batch, MergeQueueState newModel
     | _, _ ->
         IngestMergeResult.NoOp, MergeQueueState model
 
@@ -203,33 +246,6 @@ type UpdatePullRequestResult =
     | NoOp
     | AbortRunningBatch of Batch * PullRequestID
     | AbortMergingBatch of Batch * PullRequestID
-
-let private updateShaForEnqueuedPr (newValue: SHA) (id: PullRequestID) (model: MergeQueueModel): AttemptQueue =
-    // remove offending PR for now
-    let updateCorrespondingSha (pr, a) =
-        if pr.id = id then { pr with sha = newValue }, a
-        else pr, a
-
-    model.queue |> List.map updateCorrespondingSha
-
-let private movePullRequestToSinBin (id: PullRequestID) (newValue: SHA) (MergeQueueState model): AttemptQueue * SinBin =
-    // get PR (and update SHA)
-    let updatedPr =
-        model.queue
-        |> List.tryFind (fun (pr, _) -> pr.id = id)
-        |> Option.map (fun (pr, _) -> { pr with sha = newValue })
-
-    // move to the sin bin
-    let newSinBin =
-        match updatedPr with
-        | None -> model.sinBin
-        | Some item -> model.sinBin @ [ item ]
-
-    // from the queue
-    let newQueue =
-        model.queue |> List.filter (fun (pr, _) -> pr.id <> id)
-
-    newQueue, newSinBin
 
 let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState model): UpdatePullRequestResult * State =
     // update SHAs in sin bin first
@@ -249,7 +265,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
             |> List.contains id
 
         if inRunningBatch then
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue (MergeQueueState modelWithNewSinBin)
+            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
             AbortRunningBatch(batch, id),
             MergeQueueState
                 { modelWithNewSinBin with
@@ -257,7 +273,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                       batch = NoBatch
                       sinBin = newSinBin }
         else
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue (MergeQueueState modelWithNewSinBin)
+            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             let newModel =
                 { modelWithNewSinBin with
@@ -265,7 +281,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                       sinBin = newSinBin }
             NoOp, MergeQueueState newModel
     | NoBatch ->
-        let newQueue, newSinBin = movePullRequestToSinBin id newValue (MergeQueueState modelWithNewSinBin)
+        let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
         NoOp,
         MergeQueueState
             { modelWithNewSinBin with
@@ -286,7 +302,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                       queue = newQueue
                       batch = NoBatch }
         else
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue (MergeQueueState modelWithNewSinBin)
+            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             let newModel =
                 { modelWithNewSinBin with
@@ -339,7 +355,7 @@ let previewBatches (MergeQueueState model): ExecutionPlan =
         | [] ->
             []
         | _ ->
-            let batch = selectBatch queue
+            let batch = pickNextBatch queue
             let remainder = removeFromQueue batch queue
             batch :: (splitIntoBatches remainder)
 

@@ -219,7 +219,7 @@ let ``Recieve message that batch failed the build when batch is running``() =
     let result, state =
         runningQueue |> ingestBuildUpdate BuildMessage.Failure
 
-    result |> should equal (IngestBuildResult.BuildFailureWithRetry [ one; two ])
+    result |> should equal (IngestBuildResult.ReportBuildFailureWithRetry [ one; two ])
 
     state
     |> peekCurrentQueue
@@ -245,7 +245,7 @@ let ``Single PR batches that fail to build are dequeued``() =
     let result, state =
         runningBatchOfOne |> ingestBuildUpdate BuildMessage.Failure
 
-    result |> should equal (IngestBuildResult.BuildFailureNoRetry [ one ])
+    result |> should equal (IngestBuildResult.ReportBuildFailureNoRetry [ one ])
 
     state
     |> peekCurrentQueue

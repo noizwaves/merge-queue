@@ -16,6 +16,7 @@ Done
 1.  prevent updated branches from starting until statuses have succeeded again
 
 Backlog
+1.  fire and forget PRs
 1.  cancel a PR
 1.  check reviews accepted of PR when enqueue
 1.  check target branch of PR matches Merge Queue target branch
