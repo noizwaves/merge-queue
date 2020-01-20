@@ -135,6 +135,56 @@ let private movePullRequestToSinBin (id: PullRequestID) (newValue: SHA) (queue: 
 
     newQueue, newSinBin
 
+let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (sinBin: SinBin): SinBin =
+    sinBin
+    |> List.map (fun pr ->
+        if pr.id = id then { pr with sha = newValue }
+        else pr)
+
+// Note: these signatures are huge! Why?
+let private updateShaInQueueWhenBatchRunning (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
+    (sinBin: SinBin): bool * AttemptQueue * SinBin =
+    let inRunningBatch =
+        batch
+        |> List.map (fun pr -> pr.id)
+        |> List.contains id
+
+    if inRunningBatch then
+        let newQueue, newSinBin =
+            movePullRequestToSinBin id newValue queue sinBin
+
+        true, newQueue, newSinBin
+
+    else
+        let newQueue, newSinBin =
+            movePullRequestToSinBin id newValue queue sinBin
+
+        false, newQueue, newSinBin
+
+// Note: these signatures are huge! Why?
+let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
+    (sinBin: SinBin): AttemptQueue * SinBin =
+    // check to see if we should pull the matching commit out of the "sin bin"
+    let matching =
+        sinBin |> List.tryFind (fun pr -> pr.id = id && pr.sha = buildSha)
+
+    match matching with
+    | Some pr ->
+        // update PR's status
+        let updated = { pr with statuses = statuses }
+        let updatedSinBin =
+            sinBin |> List.where (fun p -> p <> pr)
+
+        match passesBuild updated with
+        | true ->
+            let newQueue = queue @ [ updated, [] ]
+            newQueue, updatedSinBin
+        | false ->
+            let newSinBin = updatedSinBin @ [ updated ]
+            queue, newSinBin
+    | None ->
+        queue, sinBin
+
 // Commands
 type EnqueueResult =
     | Success
@@ -248,45 +298,38 @@ type UpdatePullRequestResult =
     | AbortMergingBatch of Batch * PullRequestID
 
 let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState model): UpdatePullRequestResult * State =
-    // update SHAs in sin bin first
-    let newSinBin =
-        model.sinBin
-        |> List.map (fun pr ->
-            if pr.id = id then { pr with sha = newValue }
-            else pr)
-
+    let newSinBin = model.sinBin |> updateShaInSinBin id newValue
     let modelWithNewSinBin = { model with sinBin = newSinBin }
 
     match modelWithNewSinBin.batch with
     | Running batch ->
-        let inRunningBatch =
-            batch
-            |> List.map (fun pr -> pr.id)
-            |> List.contains id
+        let abortRunningBatch, newQueue, newSinBin =
+            updateShaInQueueWhenBatchRunning id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
-        if inRunningBatch then
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-            AbortRunningBatch(batch, id),
-            MergeQueueState
+        if abortRunningBatch then
+            let newModel =
                 { modelWithNewSinBin with
                       queue = newQueue
                       batch = NoBatch
                       sinBin = newSinBin }
-        else
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            AbortRunningBatch(batch, id), MergeQueueState newModel
 
+        else
             let newModel =
                 { modelWithNewSinBin with
                       queue = newQueue
                       sinBin = newSinBin }
             NoOp, MergeQueueState newModel
     | NoBatch ->
-        let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-        NoOp,
-        MergeQueueState
+        let newQueue, newSinBin =
+            movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+        let newModel =
             { modelWithNewSinBin with
                   queue = newQueue
                   sinBin = newSinBin }
+        NoOp, MergeQueueState newModel
+
     | Merging batch ->
         let inMergingBatch =
             batch
@@ -295,14 +338,17 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
 
         if inMergingBatch then
             // fast fail the current batch, an unsafe PR could be about to merge into target
-            let newQueue = modelWithNewSinBin.queue |> List.filter (fun (pr, _) -> List.contains pr batch |> not)
-            AbortMergingBatch(batch, id),
-            MergeQueueState
+            let newQueue = modelWithNewSinBin.queue |> removeFromQueue batch
+
+            let newModel =
                 { modelWithNewSinBin with
                       queue = newQueue
                       batch = NoBatch }
+
+            AbortMergingBatch(batch, id), MergeQueueState newModel
         else
-            let newQueue, newSinBin = movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            let newQueue, newSinBin =
+                movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             let newModel =
                 { modelWithNewSinBin with
@@ -312,31 +358,17 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
 
 let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (MergeQueueState model): State =
     // check to see if we should pull the matching commit out of the "sin bin"
-    let matching =
-        model.sinBin |> List.tryFind (fun pr -> pr.id = id && pr.sha = buildSha)
+    let newQueue, newSinBin =
+        updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
 
-    match matching with
-    | Some pr ->
-        // update PR's status
-        let updated = { pr with statuses = statuses }
-        let updatedSinBin =
-            model.sinBin |> List.where (fun p -> p <> pr)
-
-        match passesBuild updated with
-        | true ->
-            let newQueue = model.queue @ [ updated, [] ]
-            MergeQueueState
-                { model with
-                      queue = newQueue
-                      sinBin = updatedSinBin }
-        | false ->
-            let newSinBin = updatedSinBin @ [ updated ]
-            MergeQueueState { model with sinBin = newSinBin }
-    | None ->
-        MergeQueueState model
+    MergeQueueState
+        { model with
+              queue = newQueue
+              sinBin = newSinBin }
 
 // "Properties"
-// Should these be DTOs?
+
+// Should these return DTOs?
 let peekCurrentQueue (MergeQueueState model): List<PullRequest> =
     model.queue |> List.map fst
 
@@ -358,7 +390,6 @@ let previewBatches (MergeQueueState model): ExecutionPlan =
             let batch = pickNextBatch queue
             let remainder = removeFromQueue batch queue
             batch :: (splitIntoBatches remainder)
-
 
     let current =
         match model.batch with
