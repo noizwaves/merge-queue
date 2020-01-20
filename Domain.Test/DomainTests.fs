@@ -96,7 +96,7 @@ let ``Enqueue an already enqueued Pull Request``() =
         |> snd
 
     let (result, state) =
-        singlePrQueueState |> enqueue one
+        singlePrQueueState |> enqueue (pullRequest (pullRequestId 1) (sha "92929292") [ passedCircleCI ])
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -107,6 +107,22 @@ let ``Enqueue an already enqueued Pull Request``() =
     state
     |> previewBatches
     |> should equal [ [ one ] ]
+
+[<Fact>]
+let ``Enqueue a sin binned Pull Request``() =
+    let singlePrInSinBin =
+        emptyMergeQueue
+        |> enqueue one
+        |> snd
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+        |> snd
+
+    let result, state =
+        singlePrInSinBin |> enqueue (pullRequest (pullRequestId 1) (sha "92929292") [ passedCircleCI ])
+
+    result |> should equal EnqueueResult.AlreadyEnqueued
+
+    state |> should equal singlePrInSinBin
 
 [<Fact>]
 let ``Enqueue multiple Pull Requests``() =

@@ -197,12 +197,19 @@ let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * 
     let alreadyEnqueued =
         model.queue
         |> List.map fst
-        |> List.contains pullRequest
+        |> List.map (fun pr -> pr.id)
+        |> List.contains pullRequest.id
 
-    match passedBuild, alreadyEnqueued with
-    | false, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
-    | _, true -> AlreadyEnqueued, MergeQueueState model
-    | _, false -> Success, MergeQueueState { model with queue = enqueuePullRequest pullRequest model.queue }
+    let alreadySinBinned =
+        model.sinBin
+        |> List.map (fun pr -> pr.id)
+        |> List.contains pullRequest.id
+
+    match passedBuild, alreadyEnqueued, alreadySinBinned with
+    | false, _, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
+    | _, true, _ -> AlreadyEnqueued, MergeQueueState model
+    | _, _, true -> AlreadyEnqueued, MergeQueueState model
+    | true, false, false -> Success, MergeQueueState { model with queue = enqueuePullRequest pullRequest model.queue }
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>
