@@ -310,6 +310,8 @@ type StartBatchResult =
     | AlreadyRunning
     | EmptyQueue
 
+// SMELL: what calls this? synchronous after some other call?
+// maybe make start batch private, and call it inside enqueue && updateStatus?
 let startBatch (MergeQueueState model): StartBatchResult * State =
     match model.batch, model.queue with
     | _, [] -> EmptyQueue, MergeQueueState model

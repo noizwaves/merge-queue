@@ -33,6 +33,14 @@ Icebox
 1.  improve robustness around missed messages? when a build goes quiet?
 1.  handle mismatch between build/merge batches and merge queue state?
     1. this is in some kind of lost message scenario, domain should worry about this?
+    
+Ideas
+1.  BuildBatchCommand / StartBatchBuildEvent / BatchBuildStartedEvent?
+1.  MergeBatchCommand / StartBatchMergeEvent / BatchMergeStartedEvent?
+1.  bootstrap system from Open PRs & most recent "merge queue" comment!
+    -   recovery or init
+    -   either "enqueue" or "dequeue"
+    -   result is an alternative way to construct an initial MergeQueueState
 
 Read
 - https://fsharpforfunandprofit.com/posts/concurrency-actor-model/
