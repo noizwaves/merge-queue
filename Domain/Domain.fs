@@ -5,9 +5,11 @@ type SHA = SHA of string
 
 type PullRequestID = PullRequestID of int
 
+// Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
 type CommitStatusState =
+    | Pending
     | Success
-    | NoSuccess
+    | Failure
 
 type CommitStatus =
     { context: string
@@ -19,6 +21,11 @@ type PullRequest =
     { id: PullRequestID
       sha: SHA
       statuses: CommitStatuses }
+
+type BuildStatus =
+    | Pending
+    | Success
+    | Failure
 
 type Batch = List<PullRequest>
 
@@ -69,14 +76,23 @@ let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue):
     let removeIds = toRemove |> List.map (fun pr -> pr.id)
     queue |> List.filter (fun (pr, _) -> List.contains pr.id removeIds |> not)
 
-let private passesBuild (pullRequest: PullRequest): bool =
+let private getBuildStatus (pullRequest: PullRequest): BuildStatus =
     match pullRequest.statuses with
-    | [] -> false
+    | [] -> BuildStatus.Failure
     | statuses ->
-        statuses |> List.forall (fun s -> s.state = CommitStatusState.Success)
+        let anyFailures = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Failure)
+        let anyPending = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Pending)
+
+        match anyFailures, anyPending with
+        | Some _, _ -> BuildStatus.Failure
+        | _, Some _ -> BuildStatus.Pending
+        | _, _ -> BuildStatus.Success
 
 let private enqueuePullRequest (pullRequest: PullRequest) (queue: AttemptQueue): AttemptQueue =
     queue @ [ pullRequest, [] ]
+
+let private sinBinPullRequest (pullRequest: PullRequest) (sinBin: SinBin): SinBin =
+    sinBin @ [ pullRequest ]
 
 let private pickNextBatch (queue: AttemptQueue): Batch =
     match queue with
@@ -192,11 +208,14 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
         let updatedSinBin =
             sinBin |> List.where (fun p -> p <> pr)
 
-        match passesBuild updated with
-        | true ->
+        match getBuildStatus updated with
+        | BuildStatus.Success ->
             let newQueue = queue @ [ updated, [] ]
             newQueue, updatedSinBin
-        | false ->
+        | BuildStatus.Failure ->
+            let newSinBin = updatedSinBin @ [ updated ]
+            queue, newSinBin
+        | BuildStatus.Pending ->
             let newSinBin = updatedSinBin @ [ updated ]
             queue, newSinBin
     | None ->
@@ -205,20 +224,26 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
 
 // Commands
 type EnqueueResult =
-    | Success
+    | Enqueued
+    | SinBinned
     | RejectedNeedAllStatusesSuccess
     | AlreadyEnqueued
 
 let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * State =
-    let passedBuild = pullRequest |> passesBuild
+    let buildStatus = getBuildStatus pullRequest
     let alreadyEnqueued = model.queue |> inQueue pullRequest.id
     let alreadySinBinned = model.sinBin |> inSinBin pullRequest.id
 
-    match passedBuild, alreadyEnqueued, alreadySinBinned with
-    | false, _, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
+    match buildStatus, alreadyEnqueued, alreadySinBinned with
+    | BuildStatus.Failure, _, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
     | _, true, _ -> AlreadyEnqueued, MergeQueueState model
     | _, _, true -> AlreadyEnqueued, MergeQueueState model
-    | true, false, false -> Success, MergeQueueState { model with queue = enqueuePullRequest pullRequest model.queue }
+    | BuildStatus.Pending, false, false ->
+        let newModel = { model with sinBin = sinBinPullRequest pullRequest model.sinBin }
+        SinBinned, MergeQueueState newModel
+    | BuildStatus.Success, false, false ->
+        let newModel = { model with queue = enqueuePullRequest pullRequest model.queue }
+        Enqueued, MergeQueueState newModel
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>

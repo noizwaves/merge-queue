@@ -4,8 +4,10 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 
+let private passedLinter = commitStatus "uberlinter" CommitStatusState.Success
+let private runningCircleCI = commitStatus "circleci" CommitStatusState.Pending
 let private passedCircleCI = commitStatus "circleci" CommitStatusState.Success
-let private notPassedCircleCI = commitStatus "circleci" CommitStatusState.NoSuccess
+let private failedCircleCI = commitStatus "circleci" CommitStatusState.Failure
 
 let private one = pullRequest (pullRequestId 1) (sha "00001111") [ passedCircleCI ]
 let private two = pullRequest (pullRequestId 22) (sha "00002222") [ passedCircleCI ]
@@ -54,7 +56,7 @@ let ``Enqueue a Pull Request``() =
     let (result, state) =
         emptyMergeQueue |> enqueue one
 
-    result |> should equal EnqueueResult.Success
+    result |> should equal EnqueueResult.Enqueued
 
     state
     |> peekCurrentQueue
@@ -69,8 +71,8 @@ let ``Enqueue a Pull Request``() =
     |> should equal [ [ one ] ]
 
 [<Fact>]
-let ``Enqueue a Pull Request that has failed a build step is rejected``() =
-    let failingPr = pullRequest (pullRequestId 1) (sha "00001111") [ notPassedCircleCI ]
+let ``Enqueue a Pull Request with a failing commit status is rejected``() =
+    let failingPr = pullRequest (pullRequestId 1) (sha "00001111") [ passedLinter; failedCircleCI ]
     let (result, state) =
         emptyMergeQueue |> enqueue failingPr
 
@@ -79,7 +81,23 @@ let ``Enqueue a Pull Request that has failed a build step is rejected``() =
     state |> should equal emptyMergeQueue
 
 [<Fact>]
-let ``Enqueuing a Pull Request that has no build statuses is rejected``() =
+let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
+    let runningPr = pullRequest (pullRequestId 1) (sha "00001111") [ passedLinter; runningCircleCI ]
+    let (result, state) =
+        emptyMergeQueue |> enqueue runningPr
+
+    result |> should equal EnqueueResult.SinBinned
+
+    state
+    |> peekCurrentQueue
+    |> should be Empty
+
+    state
+    |> peekSinBin
+    |> should equal [ runningPr ]
+
+[<Fact>]
+let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let failingPr = pullRequest (pullRequestId 1) (sha "00001111") []
     let (result, state) =
         emptyMergeQueue |> enqueue failingPr
@@ -137,9 +155,9 @@ let ``Enqueue multiple Pull Requests``() =
         firstState |> enqueue second
 
 
-    firstResult |> should equal EnqueueResult.Success
+    firstResult |> should equal EnqueueResult.Enqueued
 
-    secondResult |> should equal EnqueueResult.Success
+    secondResult |> should equal EnqueueResult.Enqueued
 
     secondState
     |> peekCurrentQueue
@@ -519,7 +537,7 @@ let ``An updated PR with failing build status is not re-enqueued``() =
         |> snd
 
     let state =
-        awaitingStatusInfo |> updateStatuses (pullRequestId 1) (sha "10101010") [ notPassedCircleCI ]
+        awaitingStatusInfo |> updateStatuses (pullRequestId 1) (sha "10101010") [ failedCircleCI ]
 
     state
     |> peekCurrentQueue

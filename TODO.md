@@ -14,10 +14,11 @@ Done
 1.  preview batches
 1.  check GitHub build status of PR when enqueue
 1.  prevent updated branches from starting until statuses have succeeded again
+1.  fire and forget PRs
 
 Backlog
-1.  fire and forget PRs
-1.  cancel a PR
+1.  dequeue a PR
+1.  cancel a batch
 1.  check reviews accepted of PR when enqueue
 1.  check target branch of PR matches Merge Queue target branch
 1.  priority
