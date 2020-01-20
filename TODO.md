@@ -18,6 +18,8 @@ Done
 1.  dequeue a PR
 
 Backlog
+1.  add assertions on the thrown away results
+1.  failed single batch PRs are not dequeued only sin binned
 1.  cancel a batch
 1.  check reviews accepted of PR when enqueue
 1.  check target branch of PR matches Merge Queue target branch
