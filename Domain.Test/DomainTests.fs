@@ -76,7 +76,7 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
     let (result, state) =
         emptyMergeQueue |> enqueue failingPr
 
-    result |> should equal EnqueueResult.RejectedNeedAllStatusesSuccess
+    result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
     state |> should equal emptyMergeQueue
 
@@ -102,7 +102,7 @@ let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let (result, state) =
         emptyMergeQueue |> enqueue failingPr
 
-    result |> should equal EnqueueResult.RejectedNeedAllStatusesSuccess
+    result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
     state |> should equal emptyMergeQueue
 
