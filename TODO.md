@@ -15,22 +15,23 @@ Done
 1.  check GitHub build status of PR when enqueue
 1.  prevent updated branches from starting until statuses have succeeded again
 1.  fire and forget PRs
+1.  dequeue a PR
 
 Backlog
-1.  dequeue a PR
 1.  cancel a batch
 1.  check reviews accepted of PR when enqueue
 1.  check target branch of PR matches Merge Queue target branch
 1.  priority
-1.  accept status for PRs as well as staging branch builds
 1.  max batch size
 1.  paused
 1.  target branch is updated
 
 Icebox
-1.  dequeue an unstarted PR
-1.  dequeue a running PR
 1.  list events by PR
 1.  improve robustness around missed messages? when a build goes quiet?
 1.  handle mismatch between build/merge batches and merge queue state?
     1. this is in some kind of lost message scenario, domain should worry about this?
+
+Read
+- https://fsharpforfunandprofit.com/posts/concurrency-actor-model/
+- https://fsharpforfunandprofit.com/posts/recipe-part3/

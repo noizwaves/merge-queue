@@ -5,7 +5,7 @@ type SHA = SHA of string
 
 type PullRequestID = PullRequestID of int
 
-// Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
+// SMELL: Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
 type CommitStatusState =
     | Pending
     | Success
@@ -72,9 +72,12 @@ let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
       state = state }
 
 // Domain Logic
-let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
+let private removeAllFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
     let removeIds = toRemove |> List.map (fun pr -> pr.id)
     queue |> List.filter (fun (pr, _) -> List.contains pr.id removeIds |> not)
+
+let private removeFromQueue (id: PullRequestID) (queue: AttemptQueue): AttemptQueue =
+    queue |> List.filter (fun (pr, _) -> pr.id <> id)
 
 let private getBuildStatus (pullRequest: PullRequest): BuildStatus =
     match pullRequest.statuses with
@@ -119,6 +122,15 @@ let private inBatch (id: PullRequestID) (batch: Batch): bool =
     |> List.map (fun pr -> pr.id)
     |> List.contains id
 
+let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
+    match current with
+    | Running batch ->
+        inBatch id batch
+    | Merging _ ->
+        false
+    | NoBatch ->
+        false
+
 let private bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
         None
@@ -130,7 +142,7 @@ let private completeBuild (batch: Batch): CurrentBatch =
     Merging batch
 
 let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
-    let newQueue = queue |> removeFromQueue batch
+    let newQueue = queue |> removeAllFromQueue batch
     newQueue, NoBatch
 
 let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue) =
@@ -146,7 +158,7 @@ let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue) =
     newQueue, NoBatch
 
 let private completeMerge (batch: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
-    let newQueue = queue |> removeFromQueue batch
+    let newQueue = queue |> removeAllFromQueue batch
     newQueue, NoBatch
 
 let private failMerge (_batch: Batch): CurrentBatch =
@@ -177,7 +189,7 @@ let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (sinBin: SinBi
         if pr.id = id then { pr with sha = newValue }
         else pr)
 
-// Note: these signatures are huge! Why?
+// SMELL: these signatures are huge! Why?
 let private updateShaInQueueWhenBatchRunning (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
     let inRunningBatch = batch |> inBatch id
@@ -194,7 +206,7 @@ let private updateShaInQueueWhenBatchRunning (id: PullRequestID) (newValue: SHA)
 
         false, newQueue, newSinBin
 
-// Note: these signatures are huge! Why?
+// SMELL: these signatures are huge! Why?
 let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
     (sinBin: SinBin): AttemptQueue * SinBin =
     // check to see if we should pull the matching commit out of the "sin bin"
@@ -244,6 +256,54 @@ let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * 
     | BuildSuccess, false, false ->
         let newModel = { model with queue = addPullRequestToQueue pullRequest model.queue }
         Enqueued, MergeQueueState newModel
+
+type DequeueResult =
+    | Dequeued
+    | DequeuedAndAbortRunningBatch of Batch * PullRequestID
+    | RejectedInMergingBatch
+    | NotFound
+
+let dequeue (id: PullRequestID) (MergeQueueState model): DequeueResult * State =
+    let isEnqueued = model.queue |> inQueue id
+    let isSinBinned = model.sinBin |> inSinBin id
+
+    let result, newModel =
+        match isEnqueued, isSinBinned with
+        | true, _ ->
+            match model.batch with
+            | Running batch ->
+                let result, newBatch =
+                    if inBatch id batch then DequeuedAndAbortRunningBatch(batch, id), NoBatch
+                    else Dequeued, model.batch
+
+                let newQueue = model.queue |> removeFromQueue id
+
+                let newModel =
+                    { model with
+                          queue = newQueue
+                          batch = newBatch }
+                result, newModel
+
+            | Merging batch ->
+                let result, newQueue =
+                    if inBatch id batch then RejectedInMergingBatch, model.queue
+                    else Dequeued, model.queue |> removeFromQueue id
+
+                let newModel = { model with queue = newQueue }
+                result, newModel
+
+            | NoBatch ->
+                let newQueue = model.queue |> removeFromQueue id
+                Dequeued, { model with queue = newQueue }
+
+        | _, true ->
+            let newSinBin = model.sinBin |> List.where (fun pr -> pr.id <> id)
+            Dequeued, { model with sinBin = newSinBin }
+
+        | false, false ->
+            NotFound, model
+
+    result, MergeQueueState newModel
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>
@@ -376,7 +436,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
 
         if inMergingBatch then
             // fast fail the current batch, an unsafe PR could be about to merge into target
-            let newQueue = modelWithNewSinBin.queue |> removeFromQueue batch
+            let newQueue = modelWithNewSinBin.queue |> removeAllFromQueue batch
 
             let newModel =
                 { modelWithNewSinBin with
@@ -426,7 +486,7 @@ let previewBatches (MergeQueueState model): ExecutionPlan =
             []
         | _ ->
             let batch = pickNextBatch queue
-            let remainder = removeFromQueue batch queue
+            let remainder = removeAllFromQueue batch queue
             batch :: (splitIntoBatches remainder)
 
     let current =
@@ -438,7 +498,7 @@ let previewBatches (MergeQueueState model): ExecutionPlan =
     let remainder =
         match current with
         | None -> model.queue
-        | Some batch -> removeFromQueue batch model.queue
+        | Some batch -> removeAllFromQueue batch model.queue
 
     match current with
     | None -> remainder |> splitIntoBatches

@@ -167,6 +167,131 @@ let ``Enqueue multiple Pull Requests``() =
     |> previewBatches
     |> should equal [ [ one; two ] ]
 
+// Dequeue a Pull Request
+[<Fact>]
+let ``Dequeue an enqueued Pull Request``() =
+    let result, state =
+        idleWithTwoPullRequests |> dequeue (pullRequestId 1)
+
+    result |> should equal (DequeueResult.Dequeued)
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+[<Fact>]
+let ``Dequeue a sin binned Pull Request``() =
+    let idleWithOneEnqueuedOneSinBinned =
+        idleWithTwoPullRequests
+        |> updatePullRequestSha (pullRequestId 1) (sha "10101010")
+        |> snd
+
+    let result, state =
+        idleWithOneEnqueuedOneSinBinned |> dequeue (pullRequestId 1)
+
+    result |> should equal (DequeueResult.Dequeued)
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+[<Fact>]
+let ``Dequeue an unknown Pull Request``() =
+    let result, state =
+        idleWithTwoPullRequests |> dequeue (pullRequestId 404)
+
+    result |> should equal (DequeueResult.NotFound)
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+[<Fact>]
+let ``Dequeue a Pull Request that is in a running batch``() =
+    let result, state =
+        runningBatchOfTwo |> dequeue (pullRequestId 1)
+
+    result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (pullRequestId 1)))
+
+    state
+    |> peekCurrentBatch
+    |> should equal None
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+[<Fact>]
+let ``Dequeue a Pull Request that is waiting behind a running batch``() =
+    let result, state =
+        runningBatchOfTwo
+        |> enqueue three
+        |> snd
+        |> dequeue (pullRequestId 333)
+
+    result |> should equal DequeueResult.Dequeued
+
+    state
+    |> peekCurrentBatch
+    |> should equal (Some [ one; two ])
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+[<Fact>]
+let ``Dequeue a Pull Request that is in a merging batch``() =
+    let result, state =
+        mergingBatchOfTwo |> dequeue (pullRequestId 1)
+
+    result |> should equal DequeueResult.RejectedInMergingBatch
+
+    state |> should equal mergingBatchOfTwo
+
+[<Fact>]
+let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
+    let result, state =
+        mergingBatchOfTwo
+        |> enqueue three
+        |> snd
+        |> dequeue (pullRequestId 333)
+
+    result |> should equal DequeueResult.Dequeued
+
+    state
+    |> peekCurrentBatch
+    |> should equal (Some [ one; two ])
+
+    state
+    |> peekCurrentQueue
+    |> should equal [ one; two ]
+
+    state
+    |> peekSinBin
+    |> should be Empty
+
+// Starting a batch
+
 [<Fact>]
 let ``Start a batch``() =
     let (result, state) =
