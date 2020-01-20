@@ -479,7 +479,7 @@ let peekCurrentBatch (MergeQueueState model): Option<Batch> =
 let peekSinBin (MergeQueueState model): SinBin =
     model.sinBin
 
-let previewBatches (MergeQueueState model): ExecutionPlan =
+let previewExecutionPlan (MergeQueueState model): ExecutionPlan =
     let rec splitIntoBatches (queue: AttemptQueue): List<Batch> =
         match queue with
         | [] ->

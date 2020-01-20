@@ -1,4 +1,4 @@
-module MergeQueue.Domain
+module MergeQueue.Domain.Tests
 
 open Xunit
 open FsUnit.Xunit
@@ -44,7 +44,7 @@ let ``Empty queue``() =
     |> should equal None
 
     queue
-    |> previewBatches
+    |> previewExecutionPlan
     |> should be Empty
 
     queue
@@ -67,7 +67,7 @@ let ``Enqueue a Pull Request``() =
     |> should equal None
 
     state
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal [ [ one ] ]
 
 [<Fact>]
@@ -123,7 +123,7 @@ let ``Enqueue an already enqueued Pull Request``() =
     |> should equal [ one ]
 
     state
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal [ [ one ] ]
 
 [<Fact>]
@@ -164,7 +164,7 @@ let ``Enqueue multiple Pull Requests``() =
     |> should equal [ one; two ]
 
     secondState
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal [ [ one; two ] ]
 
 // Dequeue a Pull Request
@@ -308,7 +308,7 @@ let ``Start a batch``() =
     |> should equal (Some [ one; two ])
 
     state
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal [ [ one; two ] ]
 
 [<Fact>]
@@ -470,7 +470,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         |> snd
 
     runningQueueDepthThree
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal
            [ [ one; two ]
              [ three ] ]
@@ -713,7 +713,7 @@ let ``Failed batches are bisected upon build failure``() =
 
     // next batch contains only `one` and `two`
     failedBuildOfFour
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal
            [ [ one; two ]
              [ three; four ] ]
@@ -729,7 +729,7 @@ let ``Failed batches are bisected upon build failure``() =
 
     // next batch contains only `one`
     bisectedFails
-    |> previewBatches
+    |> previewExecutionPlan
     |> should equal
            [ [ one ]
              [ two ]
