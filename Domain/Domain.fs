@@ -66,7 +66,8 @@ let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
 
 // Domain Logic
 let private removeFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
-    queue |> List.filter (fun (pr, _) -> List.contains pr toRemove |> not)
+    let removeIds = toRemove |> List.map (fun pr -> pr.id)
+    queue |> List.filter (fun (pr, _) -> List.contains pr.id removeIds |> not)
 
 let private passesBuild (pullRequest: PullRequest): bool =
     match pullRequest.statuses with
@@ -86,6 +87,22 @@ let private pickNextBatch (queue: AttemptQueue): Batch =
 
         head :: matching |> List.map fst
 
+let private inQueue (id: PullRequestID) (queue: AttemptQueue): bool =
+    queue
+    |> List.map fst
+    |> List.map (fun pr -> pr.id)
+    |> List.contains id
+
+let private inSinBin (id: PullRequestID) (sinBin: SinBin): bool =
+    sinBin
+    |> List.map (fun pr -> pr.id)
+    |> List.contains id
+
+let private inBatch (id: PullRequestID) (batch: Batch): bool =
+    batch
+    |> List.map (fun pr -> pr.id)
+    |> List.contains id
+
 let private bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
         None
@@ -101,11 +118,14 @@ let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
     newQueue, NoBatch
 
 let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue) =
+    let firstIds = first |> List.map (fun pr -> pr.id)
+    let secondIds = second |> List.map (fun pr -> pr.id)
+
     let newQueue =
         queue
         |> List.map (fun (pr, a) ->
-            if List.contains pr first then (pr, a @ [ true ])
-            elif List.contains pr second then (pr, a @ [ false ])
+            if List.contains pr.id firstIds then (pr, a @ [ true ])
+            elif List.contains pr.id secondIds then (pr, a @ [ false ])
             else pr, a)
     newQueue, NoBatch
 
@@ -144,10 +164,7 @@ let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (sinBin: SinBi
 // Note: these signatures are huge! Why?
 let private updateShaInQueueWhenBatchRunning (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
-    let inRunningBatch =
-        batch
-        |> List.map (fun pr -> pr.id)
-        |> List.contains id
+    let inRunningBatch = batch |> inBatch id
 
     if inRunningBatch then
         let newQueue, newSinBin =
@@ -185,6 +202,7 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
     | None ->
         queue, sinBin
 
+
 // Commands
 type EnqueueResult =
     | Success
@@ -193,17 +211,8 @@ type EnqueueResult =
 
 let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * State =
     let passedBuild = pullRequest |> passesBuild
-
-    let alreadyEnqueued =
-        model.queue
-        |> List.map fst
-        |> List.map (fun pr -> pr.id)
-        |> List.contains pullRequest.id
-
-    let alreadySinBinned =
-        model.sinBin
-        |> List.map (fun pr -> pr.id)
-        |> List.contains pullRequest.id
+    let alreadyEnqueued = model.queue |> inQueue pullRequest.id
+    let alreadySinBinned = model.sinBin |> inSinBin pullRequest.id
 
     match passedBuild, alreadyEnqueued, alreadySinBinned with
     | false, _, _ -> RejectedNeedAllStatusesSuccess, MergeQueueState model
@@ -338,10 +347,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
         NoOp, MergeQueueState newModel
 
     | Merging batch ->
-        let inMergingBatch =
-            batch
-            |> List.map (fun pr -> pr.id)
-            |> List.contains id
+        let inMergingBatch = batch |> inBatch id
 
         if inMergingBatch then
             // fast fail the current batch, an unsafe PR could be about to merge into target
