@@ -5,6 +5,9 @@ type SHA = SHA of string
 
 type PullRequestID = PullRequestID of int
 
+let getPullRequestIDValue (PullRequestID id): int =
+    id
+
 // SMELL: Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
 type CommitStatusState =
     | Pending

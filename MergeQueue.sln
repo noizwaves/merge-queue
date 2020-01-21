@@ -7,6 +7,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Domain", "Domain\Domain.fsp
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Domain.Test", "Domain.Test\Domain.Test.fsproj", "{5AA3C2F8-71A3-4E6E-B784-644DC52A0D47}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SandboxApp", "SandboxApp\SandboxApp.fsproj", "{F0195AAA-7F63-4087-9559-97A9031B29F5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,5 +46,17 @@ Global
 		{5AA3C2F8-71A3-4E6E-B784-644DC52A0D47}.Release|x64.Build.0 = Release|Any CPU
 		{5AA3C2F8-71A3-4E6E-B784-644DC52A0D47}.Release|x86.ActiveCfg = Release|Any CPU
 		{5AA3C2F8-71A3-4E6E-B784-644DC52A0D47}.Release|x86.Build.0 = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|x64.Build.0 = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Debug|x86.Build.0 = Debug|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|x64.ActiveCfg = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|x64.Build.0 = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|x86.ActiveCfg = Release|Any CPU
+		{F0195AAA-7F63-4087-9559-97A9031B29F5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

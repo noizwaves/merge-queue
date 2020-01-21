@@ -8,6 +8,12 @@ A theoretical merge queue implementation
 
 ## Using
 
+### Using the sandbox web server
+
+1.  `dotnet run -p SandboxApp/SandboxApp.fsproj`
+
+### Interactive play with the domain
+
 Launch an F# Interactive session and play with the domain
 
 1.  `dotnet fsi`
