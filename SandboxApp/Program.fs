@@ -6,7 +6,6 @@ open Suave.Filters
 open Suave.Operators
 open Suave.Utils
 
-
 let run (port: int) =
     let local = Suave.Http.HttpBinding.createSimple HTTP "0.0.0.0" port
 
@@ -26,6 +25,7 @@ let run (port: int) =
               GET >=> pathScan "/api/dequeue/%i" (SimpleSandboxApi.dequeue load save)
               GET >=> path "/api/start" >=> request (SimpleSandboxApi.start load save)
               GET >=> path "/api/finish" >=> request (SimpleSandboxApi.finish load save)
+              POST >=> path "/webhooks/github" >=> GitHubWebhook.handle load save
               RequestErrors.NOT_FOUND "404" ]
     startWebServer config app
     0

@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="SimpleSandboxApi.fs" />
+    <Compile Include="GitHubWebhook.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

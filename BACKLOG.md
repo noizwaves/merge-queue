@@ -17,6 +17,9 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
+1.  accept webhook from github
+    1.  [secure webhook requests and validate](https://developer.github.com/webhooks/securing/)
+
 Backlog
 1.  add assertions on the thrown away results
 1.  failed single batch PRs are not dequeued only sin binned
