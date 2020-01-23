@@ -1,56 +1,6 @@
 ﻿module MergeQueue.Domain
 
-// Models
-type SHA = SHA of string
-
-type PullRequestID = PullRequestID of int
-
-let getPullRequestIDValue (PullRequestID id): int =
-    id
-
-// SMELL: Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
-type CommitStatusState =
-    | Pending
-    | Success
-    | Failure
-
-type CommitStatus =
-    { context: string
-      state: CommitStatusState }
-
-type CommitStatuses = List<CommitStatus>
-
-type PullRequest =
-    { id: PullRequestID
-      sha: SHA
-      statuses: CommitStatuses }
-
-type BuildStatus =
-    | BuildPending
-    | BuildSuccess
-    | BuildFailure
-
-type Batch = List<PullRequest>
-
-type private CurrentBatch =
-    | NoBatch
-    | Running of Batch
-    | Merging of Batch
-
-type private BisectPath = List<bool>
-
-type private AttemptQueue = List<PullRequest * BisectPath>
-
-type private SinBin = List<PullRequest>
-
-type private MergeQueueModel =
-    { queue: AttemptQueue
-      sinBin: SinBin
-      batch: CurrentBatch }
-
-type State = private MergeQueueState of MergeQueueModel
-
-type ExecutionPlan = List<Batch>
+open MergeQueue.DomainTypes
 
 // Constructors
 let emptyMergeQueue: State =
@@ -73,6 +23,10 @@ let sha (value: string): SHA =
 let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
     { context = context
       state = state }
+
+// "Getters"
+let getPullRequestIDValue (PullRequestID id): int =
+    id
 
 // Domain Logic
 let private removeAllFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =

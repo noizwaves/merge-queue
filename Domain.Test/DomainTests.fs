@@ -3,6 +3,7 @@ module MergeQueue.Domain.Tests
 open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
+open MergeQueue.DomainTypes
 
 let private passedLinter = commitStatus "uberlinter" CommitStatusState.Success
 let private runningCircleCI = commitStatus "circleci" CommitStatusState.Pending

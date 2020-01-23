@@ -3,6 +3,7 @@ module MergeQueue.Domain.IntegrationTests
 open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
+open MergeQueue.DomainTypes
 
 let private passedCircleCI = commitStatus "circleci" CommitStatusState.Success
 let private pendingCircleCI = commitStatus "circleci" CommitStatusState.Pending
@@ -16,6 +17,7 @@ let private five = pullRequest (pullRequestId 5555) (sha "00005555") [ pendingCi
 let private six = pullRequest (pullRequestId 6666) (sha "00006666") [ passedCircleCI ]
 let private seven = pullRequest (pullRequestId 7777) (sha "00007777") [ passedCircleCI ]
 let private eight = pullRequest (pullRequestId 8888) (sha "00008888") [ passedCircleCI ]
+
 
 
 [<Fact>]
