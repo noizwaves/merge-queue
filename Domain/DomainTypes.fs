@@ -42,12 +42,10 @@ module DomainTypes =
 
     type SinBin = List<PullRequest>
 
-    type MergeQueueModel =
+    type MergeQueue =
         { queue: AttemptQueue
           sinBin: SinBin
           batch: CurrentBatch }
-
-    type State = MergeQueueState of MergeQueueModel
 
     // A batch from this list should not be a batch that can be used for other functions
     // so more like a List<PreviewBatch> or List<PlannedBatch>
@@ -107,18 +105,18 @@ module DomainTypes =
 
     // State is really just convenience for AttemptQueue * SinBin
     // State only changes some of the time...
-    type Enqueue = PullRequest -> State -> State
+    type Enqueue = PullRequest -> MergeQueue -> MergeQueue
 
     // State is really just convenience for AttemptQueue * SinBin
     // State only changes some of the time
-    type Dequeue = PullRequestID -> State -> State
+    type Dequeue = PullRequestID -> MergeQueue -> MergeQueue
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command
-    type StartBatch = State -> Option<Batch>
+    type StartBatch = MergeQueue -> Option<Batch>
 
     //
-    type PreviewExecutionPlan = State -> ExecutionPlan
+    type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
 
 // ? UpdateRunningBatch / ingestBuildUpdate
 // ? UpdateMergingBatch / ingestMergeUpdate

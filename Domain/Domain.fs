@@ -3,11 +3,10 @@
 open MergeQueue.DomainTypes
 
 // Constructors
-let emptyMergeQueue: State =
-    MergeQueueState
-        { queue = []
-          sinBin = []
-          batch = NoBatch }
+let emptyMergeQueue: MergeQueue =
+    { queue = []
+      sinBin = []
+      batch = NoBatch }
 
 let pullRequest (id: PullRequestID) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =
     { id = id
@@ -198,21 +197,21 @@ type EnqueueResult =
     | RejectedFailingBuildStatus
     | AlreadyEnqueued
 
-let enqueue (pullRequest: PullRequest) (MergeQueueState model): EnqueueResult * State =
+let enqueue (pullRequest: PullRequest) (model: MergeQueue): EnqueueResult * MergeQueue =
     let buildStatus = getBuildStatus pullRequest
     let alreadyEnqueued = model.queue |> inQueue pullRequest.id
     let alreadySinBinned = model.sinBin |> inSinBin pullRequest.id
 
     match buildStatus, alreadyEnqueued, alreadySinBinned with
-    | BuildFailure, _, _ -> RejectedFailingBuildStatus, MergeQueueState model
-    | _, true, _ -> AlreadyEnqueued, MergeQueueState model
-    | _, _, true -> AlreadyEnqueued, MergeQueueState model
+    | BuildFailure, _, _ -> RejectedFailingBuildStatus, model
+    | _, true, _ -> AlreadyEnqueued, model
+    | _, _, true -> AlreadyEnqueued, model
     | BuildPending, false, false ->
         let newModel = { model with sinBin = addPullRequestToSinBin pullRequest model.sinBin }
-        SinBinned, MergeQueueState newModel
+        SinBinned, newModel
     | BuildSuccess, false, false ->
         let newModel = { model with queue = addPullRequestToQueue pullRequest model.queue }
-        Enqueued, MergeQueueState newModel
+        Enqueued, newModel
 
 type DequeueResult =
     | Dequeued
@@ -220,7 +219,7 @@ type DequeueResult =
     | RejectedInMergingBatch
     | NotFound
 
-let dequeue (id: PullRequestID) (MergeQueueState model): DequeueResult * State =
+let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue =
     let isEnqueued = model.queue |> inQueue id
     let isSinBinned = model.sinBin |> inSinBin id
 
@@ -260,7 +259,7 @@ let dequeue (id: PullRequestID) (MergeQueueState model): DequeueResult * State =
         | false, false ->
             NotFound, model
 
-    result, MergeQueueState newModel
+    result, newModel
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>
@@ -269,14 +268,14 @@ type StartBatchResult =
 
 // SMELL: what calls this? synchronous after some other call?
 // maybe make start batch private, and call it inside enqueue && updateStatus?
-let startBatch (MergeQueueState model): StartBatchResult * State =
+let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
     match model.batch, model.queue with
-    | _, [] -> EmptyQueue, MergeQueueState model
-    | Running _, _ -> AlreadyRunning, MergeQueueState model
-    | Merging _, _ -> AlreadyRunning, MergeQueueState model
+    | _, [] -> EmptyQueue, model
+    | Running _, _ -> AlreadyRunning, model
+    | Merging _, _ -> AlreadyRunning, model
     | NoBatch, queue ->
         let batch = queue |> pickNextBatch
-        PerformBatchBuild batch, MergeQueueState { model with batch = Running batch }
+        PerformBatchBuild batch, { model with batch = Running batch }
 
 type BuildMessage =
     | Success of SHA
@@ -288,7 +287,7 @@ type IngestBuildResult =
     | ReportBuildFailureWithRetry of List<PullRequest>
     | ReportBuildFailureNoRetry of List<PullRequest>
 
-let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBuildResult * State =
+let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildResult * MergeQueue =
     match model.batch, message with
     | Running batch, Failure ->
         match bisect batch with
@@ -299,7 +298,7 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
                 { model with
                       queue = newQueue
                       batch = newBatch }
-            ReportBuildFailureNoRetry batch, MergeQueueState newModel
+            ReportBuildFailureNoRetry batch, newModel
 
         | Some(first, second) ->
             let newQueue, newBatch = model.queue |> failWithRetry first second
@@ -308,22 +307,22 @@ let ingestBuildUpdate (message: BuildMessage) (MergeQueueState model): IngestBui
                 { model with
                       queue = newQueue
                       batch = newBatch }
-            ReportBuildFailureWithRetry batch, MergeQueueState newModel
+            ReportBuildFailureWithRetry batch, newModel
 
     | Running succeeded, Success targetHead ->
         let newBatch = completeBuild succeeded
-        let newState = MergeQueueState { model with batch = newBatch }
+        let newState = { model with batch = newBatch }
         let result = PerformBatchMerge(succeeded, targetHead)
         result, newState
 
     | NoBatch, Failure ->
-        NoOp, MergeQueueState model
+        NoOp, model
     | Merging _, Failure ->
-        NoOp, MergeQueueState model
+        NoOp, model
     | NoBatch, Success _ ->
-        NoOp, MergeQueueState model
+        NoOp, model
     | Merging _, Success _ ->
-        NoOp, MergeQueueState model
+        NoOp, model
 
 type MergeMessage =
     | Success
@@ -334,7 +333,7 @@ type IngestMergeResult =
     | MergeComplete of List<PullRequest>
     | ReportMergeFailure of List<PullRequest>
 
-let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMergeResult * State =
+let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeResult * MergeQueue =
     match model.batch, message with
     | Merging merged, MergeMessage.Success ->
         let newQueue, newBatch = model.queue |> completeMerge merged
@@ -344,20 +343,20 @@ let ingestMergeUpdate (message: MergeMessage) (MergeQueueState model): IngestMer
                   queue = newQueue
                   batch = newBatch }
 
-        MergeComplete merged, MergeQueueState newModel
+        MergeComplete merged, newModel
     | Merging batch, MergeMessage.Failure ->
         let newBatch = failMerge batch
         let newModel = { model with batch = newBatch }
-        ReportMergeFailure batch, MergeQueueState newModel
+        ReportMergeFailure batch, newModel
     | _, _ ->
-        IngestMergeResult.NoOp, MergeQueueState model
+        IngestMergeResult.NoOp, model
 
 type UpdatePullRequestResult =
     | NoOp
     | AbortRunningBatch of Batch * PullRequestID
     | AbortMergingBatch of Batch * PullRequestID
 
-let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState model): UpdatePullRequestResult * State =
+let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue): UpdatePullRequestResult * MergeQueue =
     let newSinBin = model.sinBin |> updateShaInSinBin id newValue
     let modelWithNewSinBin = { model with sinBin = newSinBin }
 
@@ -372,14 +371,14 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                       queue = newQueue
                       batch = NoBatch
                       sinBin = newSinBin }
-            AbortRunningBatch(batch, id), MergeQueueState newModel
+            AbortRunningBatch(batch, id), newModel
 
         else
             let newModel =
                 { modelWithNewSinBin with
                       queue = newQueue
                       sinBin = newSinBin }
-            NoOp, MergeQueueState newModel
+            NoOp, newModel
     | NoBatch ->
         let newQueue, newSinBin =
             movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -388,7 +387,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
             { modelWithNewSinBin with
                   queue = newQueue
                   sinBin = newSinBin }
-        NoOp, MergeQueueState newModel
+        NoOp, newModel
 
     | Merging batch ->
         let inMergingBatch = batch |> inBatch id
@@ -402,7 +401,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                       queue = newQueue
                       batch = NoBatch }
 
-            AbortMergingBatch(batch, id), MergeQueueState newModel
+            AbortMergingBatch(batch, id), newModel
         else
             let newQueue, newSinBin =
                 movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -411,34 +410,33 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (MergeQueueState mo
                 { modelWithNewSinBin with
                       queue = newQueue
                       sinBin = newSinBin }
-            NoOp, MergeQueueState newModel
+            NoOp, newModel
 
-let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (MergeQueueState model): State =
+let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (model: MergeQueue): MergeQueue =
     // check to see if we should pull the matching commit out of the "sin bin"
     let newQueue, newSinBin =
         updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
 
-    MergeQueueState
-        { model with
-              queue = newQueue
-              sinBin = newSinBin }
+    { model with
+          queue = newQueue
+          sinBin = newSinBin }
 
 // "Properties"
 
 // Should these return DTOs?
-let peekCurrentQueue (MergeQueueState model): List<PullRequest> =
+let peekCurrentQueue (model: MergeQueue): List<PullRequest> =
     model.queue |> List.map fst
 
-let peekCurrentBatch (MergeQueueState model): Option<Batch> =
+let peekCurrentBatch (model: MergeQueue): Option<Batch> =
     match model.batch with
     | NoBatch -> None
     | Running batch -> Some batch
     | Merging batch -> Some batch
 
-let peekSinBin (MergeQueueState model): SinBin =
+let peekSinBin (model: MergeQueue): SinBin =
     model.sinBin
 
-let previewExecutionPlan (MergeQueueState model): ExecutionPlan =
+let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
     let rec splitIntoBatches (queue: AttemptQueue): List<Batch> =
         match queue with
         | [] ->

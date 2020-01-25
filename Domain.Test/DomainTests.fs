@@ -15,19 +15,19 @@ let private two = pullRequest (pullRequestId 22) (sha "00002222") [ passedCircle
 let private three = pullRequest (pullRequestId 333) (sha "00003333") [ passedCircleCI ]
 let private four = pullRequest (pullRequestId 4444) (sha "00004444") [ passedCircleCI ]
 
-let private idleWithTwoPullRequests: State =
+let private idleWithTwoPullRequests: MergeQueue =
     emptyMergeQueue
     |> enqueue one
     |> snd
     |> enqueue two
     |> snd
 
-let private runningBatchOfTwo: State =
+let private runningBatchOfTwo: MergeQueue =
     idleWithTwoPullRequests
     |> startBatch
     |> snd
 
-let private mergingBatchOfTwo: State =
+let private mergingBatchOfTwo: MergeQueue =
     runningBatchOfTwo
     |> ingestBuildUpdate (BuildMessage.Success(sha "12345678"))
     |> snd
