@@ -17,6 +17,9 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
+1.  Refactor domain into Types & Functions & "Services"
+    1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
+
 Backlog
 1.  add assertions on the thrown away results
 1.  failed single batch PRs are not dequeued only sin binned
