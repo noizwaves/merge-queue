@@ -28,10 +28,6 @@ let getPullRequestIDValue (PullRequestID id): int =
     id
 
 // Helpers
-let private removeAllFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
-    let removeIds = toRemove |> List.map (fun pr -> pr.id)
-    queue |> List.filter (fun ((PassingPullRequest pr), _) -> List.contains pr.id removeIds |> not)
-
 let private inQueue (id: PullRequestID) (queue: AttemptQueue): bool =
     queue
     |> List.map fst
@@ -72,6 +68,9 @@ let private inCurrentBatch (id: PullRequestID) (current: CurrentBatch): bool =
 
 let removeFromQueue (id: PullRequestID) (queue: AttemptQueue): AttemptQueue =
     queue |> List.filter (fun ((PassingPullRequest pr), _) -> pr.id <> id)
+
+let removeFromSinBin (id: PullRequestID) (sinBin: SinBin): SinBin =
+    sinBin |> List.filter (fun (NaughtyPullRequest pr) -> pr.id <> id)
 
 let getBuildStatus (pullRequest: PullRequest): BuildStatus =
     match pullRequest.statuses with
@@ -153,8 +152,7 @@ let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: Attempt
         | Some item -> sinBin @ [ NaughtyPullRequest item ]
 
     // from the queue
-    let newQueue =
-        queue |> List.filter (fun ((PassingPullRequest pr), _) -> pr.id <> id)
+    let newQueue = queue |> removeFromQueue id
 
     newQueue, newSinBin
 
@@ -195,8 +193,7 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
     | Some(NaughtyPullRequest pr) ->
         // update PR's status
         let updated = { pr with statuses = statuses }
-        let updatedSinBin =
-            sinBin |> List.where (fun (NaughtyPullRequest p) -> p <> pr)
+        let updatedSinBin = sinBin |> removeFromSinBin id
 
         match prepareForQueue updated with
         | Choice1Of2 passing ->
@@ -274,7 +271,7 @@ let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue 
             Dequeued, { model with queue = newQueue }
 
         | _, _, true ->
-            let newSinBin = model.sinBin |> List.where (fun (NaughtyPullRequest pr) -> pr.id <> id)
+            let newSinBin = model.sinBin |> removeFromSinBin id
             Dequeued, { model with sinBin = newSinBin }
 
         | false, false, false ->
@@ -437,13 +434,8 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
         let inMergingBatch = batch |> inBatch id
 
         if inMergingBatch then
-            // fast fail the current batch, an unsafe PR could be about to merge into target
-            let b = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
-            let newQueue = modelWithNewSinBin.queue |> removeAllFromQueue b
-
             let newModel =
                 { modelWithNewSinBin with
-                      queue = newQueue
                       batch = NoBatch }
 
             let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
