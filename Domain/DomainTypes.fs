@@ -34,7 +34,7 @@ module DomainTypes =
 
     type PassingPullRequest = PassingPullRequest of PullRequest
 
-    type AttemptQueue = List<PassingPullRequest * BisectPath>
+    type AttemptQueue = AttemptQueue of List<PassingPullRequest * BisectPath>
 
     type NaughtyPullRequest = NaughtyPullRequest of PullRequest
 
@@ -78,8 +78,7 @@ module DomainTypes =
 
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
-    // TODO: it should also return the mutated remaining queue as well
-    type PickNextBatch = AttemptQueue -> Option<Batch>
+    type PickNextBatch = AttemptQueue -> Option<Batch * AttemptQueue>
 
     type Bisect = Batch -> Option<Batch * Batch>
 

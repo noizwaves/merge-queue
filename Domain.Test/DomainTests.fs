@@ -16,7 +16,7 @@ let private three = PullRequest.pullRequest (PullRequestID.create 333) (SHA.crea
 let private four = PullRequest.pullRequest (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
 
 let private idleWithTwoPullRequests: MergeQueue =
-    MergeQueue.emptyMergeQueue
+    MergeQueue.empty
     |> enqueue one
     |> snd
     |> enqueue two
@@ -34,7 +34,7 @@ let private mergingBatchOfTwo: MergeQueue =
 
 [<Fact>]
 let ``Empty queue``() =
-    let queue = MergeQueue.emptyMergeQueue
+    let queue = MergeQueue.empty
 
     queue
     |> peekCurrentQueue
@@ -55,7 +55,7 @@ let ``Empty queue``() =
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let (result, state) =
-        MergeQueue.emptyMergeQueue |> enqueue one
+        MergeQueue.empty |> enqueue one
 
     result |> should equal EnqueueResult.Enqueued
 
@@ -73,19 +73,21 @@ let ``Enqueue a Pull Request``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request with a failing commit status is rejected``() =
-    let failingPr = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; failedCircleCI ]
+    let failingPr =
+        PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; failedCircleCI ]
     let (result, state) =
-        MergeQueue.emptyMergeQueue |> enqueue failingPr
+        MergeQueue.empty |> enqueue failingPr
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
-    state |> should equal MergeQueue.emptyMergeQueue
+    state |> should equal MergeQueue.empty
 
 [<Fact>]
 let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
-    let runningPr = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ]
+    let runningPr =
+        PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ]
     let (result, state) =
-        MergeQueue.emptyMergeQueue |> enqueue runningPr
+        MergeQueue.empty |> enqueue runningPr
 
     result |> should equal EnqueueResult.SinBinned
 
@@ -101,21 +103,22 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let failingPr = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") []
     let (result, state) =
-        MergeQueue.emptyMergeQueue |> enqueue failingPr
+        MergeQueue.empty |> enqueue failingPr
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
-    state |> should equal MergeQueue.emptyMergeQueue
+    state |> should equal MergeQueue.empty
 
 [<Fact>]
 let ``Enqueue an already enqueued Pull Request``() =
     let singlePrQueueState =
-        MergeQueue.emptyMergeQueue
+        MergeQueue.empty
         |> enqueue one
         |> snd
 
     let (result, state) =
-        singlePrQueueState |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
+        singlePrQueueState
+        |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -130,14 +133,15 @@ let ``Enqueue an already enqueued Pull Request``() =
 [<Fact>]
 let ``Enqueue a sin binned Pull Request``() =
     let singlePrInSinBin =
-        MergeQueue.emptyMergeQueue
+        MergeQueue.empty
         |> enqueue one
         |> snd
         |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
         |> snd
 
     let result, state =
-        singlePrInSinBin |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
+        singlePrInSinBin
+        |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -150,7 +154,7 @@ let ``Enqueue multiple Pull Requests``() =
 
 
     let firstResult, firstState =
-        MergeQueue.emptyMergeQueue |> enqueue first
+        MergeQueue.empty |> enqueue first
 
     let secondResult, secondState =
         firstState |> enqueue second
@@ -344,7 +348,7 @@ let ``Attempt to start a second concurrent batch during merging``() =
 [<Fact>]
 let ``Attempt to start a batch on an empty queue``() =
     let queue =
-        MergeQueue.emptyMergeQueue
+        MergeQueue.empty
 
     let (result, state) =
         queue |> startBatch
@@ -396,7 +400,7 @@ let ``Recieve message that batch failed the build when batch is running``() =
 [<Fact>]
 let ``Single PR batches that fail to build are dequeued``() =
     let runningBatchOfOne =
-        MergeQueue.emptyMergeQueue
+        MergeQueue.empty
         |> enqueue one
         |> snd
         |> startBatch
@@ -503,7 +507,7 @@ let ``Merge success message when batch is being merged``() =
 
     result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
 
-    state |> should equal MergeQueue.emptyMergeQueue
+    state |> should equal MergeQueue.empty
 
 [<Fact>]
 let ``Merge failure message when batch is being merged``() =

@@ -19,11 +19,12 @@ let private seven = PullRequest.pullRequest (PullRequestID.create 7777) (SHA.cre
 let private eight = PullRequest.pullRequest (PullRequestID.create 8888) (SHA.create "00008888") [ passedCircleCI ]
 
 
+
 [<Fact>]
 let ``Realistic workflow``() =
     // 1. Four enqueued but not started
     let ``Four enqueued but not started`` =
-        MergeQueue.emptyMergeQueue
+        MergeQueue.empty
         |> enqueue one
         |> snd
         |> enqueue two
@@ -282,4 +283,4 @@ let ``Realistic workflow``() =
         |> ingestMergeUpdate MergeMessage.Success
         |> snd
 
-    ``Batch builds and merges successfully`` |> should equal MergeQueue.emptyMergeQueue
+    ``Batch builds and merges successfully`` |> should equal MergeQueue.empty
