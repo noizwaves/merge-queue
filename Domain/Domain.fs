@@ -67,6 +67,25 @@ module SinBin =
         |> List.filter (fun (NaughtyPullRequest pr) -> pr.id <> id)
         |> SinBin
 
+module CurrentBatch =
+    let toPullRequests (batch: CurrentBatch): Option<List<PullRequest>> =
+        match batch with
+        | NoBatch ->
+            None
+        | Running batch ->
+            batch
+            |> Batch.toPullRequests
+            |> Some
+        | Merging batch ->
+            batch
+            |> Batch.toPullRequests
+            |> Some
+
+    let toPullRequestIds (batch: CurrentBatch): Option<List<PullRequestID>> =
+        batch
+        |> toPullRequests
+        |> Option.map (List.map (fun pr -> pr.id))
+
 module MergeQueue =
     let empty: MergeQueue =
         { queue = AttemptQueue.empty
@@ -244,6 +263,35 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
             queue, newSinBin
     | None ->
         queue, sinBin
+
+let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
+    let rec splitIntoBatches (queue: AttemptQueue): List<PlannedBatch> =
+        match queue with
+        | AttemptQueue [] ->
+            []
+        | _ ->
+            match pickNextBatch queue with
+            | Some(batch, remainder) ->
+                let batchIds =
+                    batch
+                    |> Batch.toPullRequests
+                    |> List.map (fun pr -> pr.id)
+                PlannedBatch batchIds :: (splitIntoBatches remainder)
+            | None ->
+                // SMELL: impossible code path, all non-empty queues have a next batch...
+                // SMELL: how could execution get here and result is empty?
+                []
+
+    let current =
+        model.batch
+        |> CurrentBatch.toPullRequestIds
+        |> Option.map (fun prs -> [ PlannedBatch prs ])
+        |> Option.defaultValue []
+
+    let fromQueue =
+        model.queue |> splitIntoBatches
+
+    current @ fromQueue
 
 
 // Commands
@@ -523,42 +571,3 @@ let peekCurrentBatch (model: MergeQueue): Option<List<PullRequest>> =
 
 let peekSinBin (model: MergeQueue): List<PullRequest> =
     model.sinBin |> SinBin.toPullRequests
-
-let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
-    let rec splitIntoBatches (queue: AttemptQueue): List<PlannedBatch> =
-        match queue with
-        | AttemptQueue [] ->
-            []
-        | _ ->
-            match pickNextBatch queue with
-            | Some(batch, remainder) ->
-                let batchIds =
-                    batch
-                    |> Batch.toPullRequests
-                    |> List.map (fun pr -> pr.id)
-                PlannedBatch batchIds :: (splitIntoBatches remainder)
-            | None ->
-                // SMELL: impossible code path, all non-empty queues have a next batch...
-                // SMELL: how could execution get here and result is empty?
-                []
-
-    let current =
-        match model.batch with
-        | NoBatch -> []
-        | Running batch ->
-            let batchIds =
-                batch
-                |> Batch.toPullRequests
-                |> List.map (fun pr -> pr.id)
-            [ PlannedBatch batchIds ]
-        | Merging batch ->
-            let batchIds =
-                batch
-                |> Batch.toPullRequests
-                |> List.map (fun pr -> pr.id)
-            [ PlannedBatch batchIds ]
-
-    let fromQueue =
-        model.queue |> splitIntoBatches
-
-    current @ fromQueue
