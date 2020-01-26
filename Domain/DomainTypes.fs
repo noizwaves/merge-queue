@@ -48,8 +48,7 @@ module DomainTypes =
 
     type BisectedBatch = BisectedBatch of Batch
 
-    // RENAME: ActiveBatch
-    type CurrentBatch =
+    type ActiveBatch =
         | NoBatch
         | Running of RunnableBatch
         | Merging of MergeableBatch
@@ -58,7 +57,7 @@ module DomainTypes =
     type MergeQueue =
         { queue: AttemptQueue
           sinBin: SinBin
-          batch: CurrentBatch }
+          activeBatch: ActiveBatch }
 
     // A batch from this list should not be a batch that can be used for other functions
     // so more like a List<PreviewBatch> or List<PlannedBatch>
@@ -95,14 +94,14 @@ module DomainTypes =
     // only makes sense to do this on batches that failed to build
     // Batch argument should represent the retry-ability
     // Do we need to change current batch all the time in these methods?
-    type FailWithoutRetry = RunnableBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    type FailWithoutRetry = RunnableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
     // SMLELL: Do we need to change current batch all the time in these methods?
-    type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    type FailMerge = MergeableBatch -> CurrentBatch
+    type FailMerge = MergeableBatch -> ActiveBatch
 
 
     // These feel kinda like application services...
@@ -149,7 +148,7 @@ module DomainTypes =
 
     type InBatch = PullRequestID -> Batch -> bool
 
-    type InRunningBatch = PullRequestID -> CurrentBatch -> bool
+    type InRunningBatch = PullRequestID -> ActiveBatch -> bool
 
 // ? UpdateRunningBatch / ingestBuildUpdate
 // ? UpdateMergingBatch / ingestMergeUpdate
