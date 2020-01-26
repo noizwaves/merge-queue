@@ -27,40 +27,10 @@ let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
 let getPullRequestIDValue (PullRequestID id): int =
     id
 
-// Domain Logic
+// Helpers
 let private removeAllFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
     let removeIds = toRemove |> List.map (fun pr -> pr.id)
     queue |> List.filter (fun (pr, _) -> List.contains pr.id removeIds |> not)
-
-let private removeFromQueue (id: PullRequestID) (queue: AttemptQueue): AttemptQueue =
-    queue |> List.filter (fun (pr, _) -> pr.id <> id)
-
-let private getBuildStatus (pullRequest: PullRequest): BuildStatus =
-    match pullRequest.statuses with
-    | [] -> BuildFailure
-    | statuses ->
-        let anyFailures = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Failure)
-        let anyPending = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Pending)
-
-        match anyFailures, anyPending with
-        | Some _, _ -> BuildFailure
-        | _, Some _ -> BuildPending
-        | _, _ -> BuildSuccess
-
-let private addPullRequestToQueue (pullRequest: PullRequest) (queue: AttemptQueue): AttemptQueue =
-    queue @ [ pullRequest, [] ]
-
-let private addPullRequestToSinBin (pullRequest: PullRequest) (sinBin: SinBin): SinBin =
-    sinBin @ [ pullRequest ]
-
-let private pickNextBatch (queue: AttemptQueue): Batch =
-    match queue with
-    | [] -> failwith "Should not be called on an empty queue"
-    | head :: tail ->
-        let matching =
-            tail |> List.filter (fun (_, a) -> a = (head |> snd))
-
-        head :: matching |> List.map fst
 
 let private inQueue (id: PullRequestID) (queue: AttemptQueue): bool =
     queue
@@ -87,14 +57,46 @@ let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
     | NoBatch ->
         false
 
-let private bisect (batch: Batch): Option<Batch * Batch> =
+// Domain Logic
+
+let removeFromQueue (id: PullRequestID) (queue: AttemptQueue): AttemptQueue =
+    queue |> List.filter (fun (pr, _) -> pr.id <> id)
+
+let getBuildStatus (pullRequest: PullRequest): BuildStatus =
+    match pullRequest.statuses with
+    | [] -> BuildFailure
+    | statuses ->
+        let anyFailures = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Failure)
+        let anyPending = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Pending)
+
+        match anyFailures, anyPending with
+        | Some _, _ -> BuildFailure
+        | _, Some _ -> BuildPending
+        | _, _ -> BuildSuccess
+
+let addPullRequestToQueue (pullRequest: PullRequest) (queue: AttemptQueue): AttemptQueue =
+    queue @ [ pullRequest, [] ]
+
+let addPullRequestToSinBin (pullRequest: PullRequest) (sinBin: SinBin): SinBin =
+    sinBin @ [ pullRequest ]
+
+let pickNextBatch (queue: AttemptQueue): Batch =
+    match queue with
+    | [] -> failwith "Should not be called on an empty queue"
+    | head :: tail ->
+        let matching =
+            tail |> List.filter (fun (_, a) -> a = (head |> snd))
+
+        head :: matching |> List.map fst
+
+let bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
         None
     else
         let midpoint = (List.length batch) / 2
         List.splitAt midpoint batch |> Some
 
-let private completeBuild (batch: Batch): CurrentBatch =
+let completeBuild (batch: Batch): CurrentBatch =
     Merging batch
 
 let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
@@ -120,7 +122,7 @@ let private completeMerge (batch: Batch) (queue: AttemptQueue): AttemptQueue * C
 let private failMerge (_batch: Batch): CurrentBatch =
     NoBatch
 
-let private movePullRequestToSinBin (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
+let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
     // get PR (and update SHA)
     let updatedPr =
         queue
@@ -146,21 +148,22 @@ let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (sinBin: SinBi
         else pr)
 
 // SMELL: these signatures are huge! Why?
-let private updateShaInQueueWhenBatchRunning (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
+let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
     let inRunningBatch = batch |> inBatch id
 
     if inRunningBatch then
         let newQueue, newSinBin =
-            movePullRequestToSinBin id newValue queue sinBin
+            updateShaInQueue id newValue queue sinBin
 
         true, newQueue, newSinBin
 
     else
         let newQueue, newSinBin =
-            movePullRequestToSinBin id newValue queue sinBin
+            updateShaInQueue id newValue queue sinBin
 
         false, newQueue, newSinBin
+
 
 // SMELL: these signatures are huge! Why?
 let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
@@ -363,7 +366,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
     match modelWithNewSinBin.batch with
     | Running batch ->
         let abortRunningBatch, newQueue, newSinBin =
-            updateShaInQueueWhenBatchRunning id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            updateShaInRunningBatch id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
         if abortRunningBatch then
             let newModel =
@@ -381,7 +384,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
             NoOp, newModel
     | NoBatch ->
         let newQueue, newSinBin =
-            movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
         let newModel =
             { modelWithNewSinBin with
@@ -404,7 +407,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
             AbortMergingBatch(batch, id), newModel
         else
             let newQueue, newSinBin =
-                movePullRequestToSinBin id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+                updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             let newModel =
                 { modelWithNewSinBin with
