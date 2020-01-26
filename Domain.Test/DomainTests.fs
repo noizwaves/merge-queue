@@ -69,7 +69,7 @@ let ``Enqueue a Pull Request``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ [ one ] ]
+    |> should equal [ PlannedBatch [ one.id ] ]
 
 [<Fact>]
 let ``Enqueue a Pull Request with a failing commit status is rejected``() =
@@ -125,7 +125,7 @@ let ``Enqueue an already enqueued Pull Request``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ [ one ] ]
+    |> should equal [ PlannedBatch [ one.id ] ]
 
 [<Fact>]
 let ``Enqueue a sin binned Pull Request``() =
@@ -166,7 +166,7 @@ let ``Enqueue multiple Pull Requests``() =
 
     secondState
     |> previewExecutionPlan
-    |> should equal [ [ one; two ] ]
+    |> should equal [ PlannedBatch [ one.id; two.id ] ]
 
 // Dequeue a Pull Request
 [<Fact>]
@@ -310,7 +310,7 @@ let ``Start a batch``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ [ one; two ] ]
+    |> should equal [ PlannedBatch [ one.id; two.id ] ]
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
@@ -473,8 +473,8 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     runningQueueDepthThree
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two ]
-             [ three ] ]
+           [ PlannedBatch [ one.id; two.id ]
+             PlannedBatch [ three.id ] ]
 
     let finishedQueue =
         runningQueueDepthThree
@@ -716,8 +716,8 @@ let ``Failed batches are bisected upon build failure``() =
     failedBuildOfFour
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two ]
-             [ three; four ] ]
+           [ PlannedBatch [ one.id; two.id ]
+             PlannedBatch [ three.id; four.id ] ]
 
     let firstResult, firstState =
         failedBuildOfFour |> startBatch
@@ -732,9 +732,9 @@ let ``Failed batches are bisected upon build failure``() =
     bisectedFails
     |> previewExecutionPlan
     |> should equal
-           [ [ one ]
-             [ two ]
-             [ three; four ] ]
+           [ PlannedBatch [ one.id ]
+             PlannedBatch [ two.id ]
+             PlannedBatch [ three.id; four.id ] ]
 
     let secondResult, secondState =
         bisectedFails |> startBatch

@@ -48,7 +48,7 @@ let ``Realistic workflow``() =
 
     ``Four enqueued but not started``
     |> previewExecutionPlan
-    |> should equal [ [ one; two; three; four ] ]
+    |> should equal [ PlannedBatch [ one.id; two.id; three.id; four.id ] ]
 
     // 2. First batch running some additional enqueued
     let ``First batch running some additional enqueued`` =
@@ -75,8 +75,8 @@ let ``Realistic workflow``() =
     ``First batch running some additional enqueued``
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two; three; four ]
-             [ six ] ]
+           [ PlannedBatch [ one.id; two.id; three.id; four.id ]
+             PlannedBatch [ six.id ] ]
 
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
     let ``Five fails to build, Six's branch is updated, batch continues to build`` =
@@ -105,8 +105,8 @@ let ``Realistic workflow``() =
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two; three; four ]
-             [ seven ] ]
+           [ PlannedBatch [ one.id; two.id; three.id; four.id ]
+             PlannedBatch [ seven.id ] ]
 
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` =
@@ -135,9 +135,9 @@ let ``Realistic workflow``() =
     ``Five's branch is updated, Batch fails to build, Six's build passes``
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two ]
-             [ three; four ]
-             [ seven; six_v3 ] ]
+           [ PlannedBatch [ one.id; two.id ]
+             PlannedBatch [ three.id; four.id ]
+             PlannedBatch [ seven.id; six.id ] ]
 
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     let ``Start another batch, Eight is enqueued, Five's build fails again`` =
@@ -165,9 +165,9 @@ let ``Realistic workflow``() =
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> previewExecutionPlan
     |> should equal
-           [ [ one; two ]
-             [ three; four ]
-             [ seven; six_v3; eight ] ]
+           [ PlannedBatch [ one.id; two.id ]
+             PlannedBatch [ three.id; four.id ]
+             PlannedBatch [ seven.id; six.id; eight.id ] ]
 
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` =
@@ -196,8 +196,8 @@ let ``Realistic workflow``() =
     ``Five is dequeued, Three is dequeued, The batch builds and merges successfully``
     |> previewExecutionPlan
     |> should equal
-           [ [ four ]
-             [ seven; six_v3; eight ] ]
+           [ PlannedBatch [ four.id ]
+             PlannedBatch [ seven.id; six.id; eight.id ] ]
 
     // 7. Start a batch and it fails
     let ``Start a batch and it fails`` =
@@ -221,7 +221,7 @@ let ``Realistic workflow``() =
 
     ``Start a batch and it fails``
     |> previewExecutionPlan
-    |> should equal [ [ seven; six_v3; eight ] ]
+    |> should equal [ PlannedBatch [ seven.id; six.id; eight.id ] ]
 
     // 8. Start another batch, Six's branch is updated during the build causing an abort
     let ``Start another batch, Six's branch is updated during the build causing an abort`` =
@@ -247,7 +247,7 @@ let ``Realistic workflow``() =
 
     ``Start another batch, Six's branch is updated during the build causing an abort``
     |> previewExecutionPlan
-    |> should equal [ [ seven; eight ] ]
+    |> should equal [ PlannedBatch [ seven.id; eight.id ] ]
 
     // 9. Six's build starts then passes, start a batch
     let ``Six's build starts then passes, start a batch`` =
@@ -273,7 +273,7 @@ let ``Realistic workflow``() =
 
     ``Six's build starts then passes, start a batch``
     |> previewExecutionPlan
-    |> should equal [ [ seven; eight; six_v5 ] ]
+    |> should equal [ PlannedBatch [ seven.id; eight.id; six.id ] ]
 
     // 10. Batch builds and merges successfully
     let ``Batch builds and merges successfully`` =

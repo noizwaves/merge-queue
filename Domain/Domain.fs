@@ -450,14 +450,15 @@ let peekSinBin (model: MergeQueue): List<PullRequest> =
     model.sinBin |> List.map (fun (NaughtyPullRequest pr) -> pr)
 
 let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
-    let rec splitIntoBatches (queue: AttemptQueue): List<Batch> =
+    let rec splitIntoBatches (queue: AttemptQueue): List<PlannedBatch> =
         match queue with
         | [] ->
             []
         | _ ->
             let batch = pickNextBatch queue
+            let batchIds = batch |> List.map (fun pr -> pr.id)
             let remainder = removeAllFromQueue batch queue
-            batch :: (splitIntoBatches remainder)
+            PlannedBatch batchIds :: (splitIntoBatches remainder)
 
     let current =
         match model.batch with
@@ -472,4 +473,6 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
 
     match current with
     | None -> remainder |> splitIntoBatches
-    | Some batch -> batch :: (remainder |> splitIntoBatches)
+    | Some batch ->
+        let batchIds = batch |> List.map (fun pr -> pr.id)
+        PlannedBatch batchIds :: (remainder |> splitIntoBatches)

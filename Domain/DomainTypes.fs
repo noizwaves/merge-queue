@@ -56,7 +56,8 @@ module DomainTypes =
 
     // A batch from this list should not be a batch that can be used for other functions
     // so more like a List<PreviewBatch> or List<PlannedBatch>
-    type ExecutionPlan = List<Batch>
+    type PlannedBatch = PlannedBatch of List<PullRequestID>
+    type ExecutionPlan = List<PlannedBatch>
 
     // Function types
 
@@ -76,6 +77,7 @@ module DomainTypes =
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
     // SMELL: Empty AttemptQueue will not result in a batch... so Option<Batch>
+    // TODO: it should also return the mutated remaining queue as well
     type PickNextBatch = AttemptQueue -> Batch
 
     type Bisect = Batch -> Option<Batch * Batch>
