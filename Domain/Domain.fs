@@ -86,14 +86,16 @@ let addPullRequestToQueue (pullRequest: PassingPullRequest) (queue: AttemptQueue
 let addPullRequestToSinBin (pullRequest: NaughtyPullRequest) (sinBin: SinBin): SinBin =
     sinBin @ [ pullRequest ]
 
-let pickNextBatch (queue: AttemptQueue): Batch =
+let pickNextBatch (queue: AttemptQueue): Option<Batch> =
     match queue with
-    | [] -> failwith "Should not be called on an empty queue"
+    | [] -> None
     | head :: tail ->
         let matching =
             tail |> List.filter (fun (_, a) -> a = (head |> snd))
 
-        head :: matching |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        let batch = head :: matching |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+
+        Some batch
 
 let bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
@@ -287,8 +289,14 @@ let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
     | Running _, _ -> AlreadyRunning, model
     | Merging _, _ -> AlreadyRunning, model
     | NoBatch, queue ->
-        let batch = queue |> pickNextBatch
-        PerformBatchBuild batch, { model with batch = Running batch }
+        let nextBatch = queue |> pickNextBatch
+        match nextBatch with
+        | Some batch ->
+            PerformBatchBuild batch, { model with batch = Running batch }
+        | None ->
+            // SMELL: impossible code path, all non-empty queues have a next batch...
+            // SMELL: how could execution get here and result is empty?
+            EmptyQueue, model
 
 type BuildMessage =
     | Success of SHA
@@ -455,10 +463,16 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
         | [] ->
             []
         | _ ->
-            let batch = pickNextBatch queue
-            let batchIds = batch |> List.map (fun pr -> pr.id)
-            let remainder = removeAllFromQueue batch queue
-            PlannedBatch batchIds :: (splitIntoBatches remainder)
+            let nextBatch = pickNextBatch queue
+            match nextBatch with
+            | Some batch ->
+                let batchIds = batch |> List.map (fun pr -> pr.id)
+                let remainder = removeAllFromQueue batch queue
+                PlannedBatch batchIds :: (splitIntoBatches remainder)
+            | None ->
+                // SMELL: impossible code path, all non-empty queues have a next batch...
+                // SMELL: how could execution get here and result is empty?
+                []
 
     let current =
         match model.batch with

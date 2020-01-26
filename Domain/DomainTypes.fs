@@ -76,9 +76,8 @@ module DomainTypes =
 
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
-    // SMELL: Empty AttemptQueue will not result in a batch... so Option<Batch>
     // TODO: it should also return the mutated remaining queue as well
-    type PickNextBatch = AttemptQueue -> Batch
+    type PickNextBatch = AttemptQueue -> Option<Batch>
 
     type Bisect = Batch -> Option<Batch * Batch>
 
