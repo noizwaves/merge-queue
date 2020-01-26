@@ -5,7 +5,7 @@ open Suave
 open Suave.Filters
 open Suave.Operators
 open Suave.Utils
-open MergeQueue.DomainTypes
+open MergeQueue.DbTypes
 
 let run (port: int) =
     let local = Suave.Http.HttpBinding.createSimple HTTP "0.0.0.0" port
@@ -13,10 +13,9 @@ let run (port: int) =
     let config =
         { defaultConfig with bindings = [ local ] }
 
-    // quick and dirty data store
-    let mutable state = Domain.MergeQueue.empty
-    let load(): MergeQueue = state
-    let save (newState: MergeQueue): unit = state <- newState
+    let repo = InMemoryRepository.create()
+    let load: Load = InMemoryRepository.load repo
+    let save: Save = InMemoryRepository.save repo
 
     let app: WebPart =
         choose

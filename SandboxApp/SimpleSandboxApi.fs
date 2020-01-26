@@ -6,16 +6,12 @@ open Newtonsoft.Json
 open Newtonsoft.Json.Serialization
 open MergeQueue.DomainTypes
 open MergeQueue.Domain
-
+open MergeQueue.DbTypes
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
     jsonSerializerSettings.ContractResolver <- CamelCasePropertyNamesContractResolver()
     JsonConvert.SerializeObject(v, jsonSerializerSettings)
-
-type GetState = unit -> MergeQueue
-
-type UpdateState = MergeQueue -> unit
 
 type PullRequestDTO =
     { id: int }
@@ -29,8 +25,8 @@ type ViewMergeQueueDTO =
       plan: PlanDTO
       sinBin: List<PullRequestDTO> }
 
-let view (fetch: GetState) _request: WebPart =
-    let state = fetch()
+let view (load: Load) _request: WebPart =
+    let state = load()
 
     let sinBin =
         state
@@ -61,13 +57,14 @@ let view (fetch: GetState) _request: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let enqueue (fetch: GetState) (store: UpdateState) id: WebPart =
+let enqueue (load: Load) (save: Save) id: WebPart =
     let result, state =
-        fetch()
+        load()
         |> Domain.enqueue
-            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234") [ CommitStatus.create "circleci" CommitStatusState.Success ])
+            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
+                 [ CommitStatus.create "circleci" CommitStatusState.Success ])
 
-    store state
+    save state
 
     let response =
         match result with
@@ -81,13 +78,14 @@ let enqueue (fetch: GetState) (store: UpdateState) id: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
+let fireAndForget (load: Load) (save: Save) id: WebPart =
     let result, state =
-        fetch()
+        load()
         |> Domain.enqueue
-            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234") [ CommitStatus.create "circleci" CommitStatusState.Pending ])
+            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
+                 [ CommitStatus.create "circleci" CommitStatusState.Pending ])
 
-    store state
+    save state
 
     let response =
         match result with
@@ -101,11 +99,11 @@ let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let dequeue (fetch: GetState) (store: UpdateState) id: WebPart =
+let dequeue (load: Load) (save: Save) id: WebPart =
     let result, state =
-        fetch() |> Domain.dequeue (PullRequestID.create id)
+        load() |> Domain.dequeue (PullRequestID.create id)
 
-    store state
+    save state
 
     let response =
         match result with
@@ -119,11 +117,11 @@ let dequeue (fetch: GetState) (store: UpdateState) id: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let start (fetch: GetState) (store: UpdateState) _request: WebPart =
+let start (load: Load) (save: Save) _request: WebPart =
     let result, state =
-        fetch() |> startBatch
+        load() |> startBatch
 
-    store state
+    save state
 
     let response =
         match result with
@@ -136,9 +134,9 @@ let start (fetch: GetState) (store: UpdateState) _request: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let finish (fetch: GetState) (store: UpdateState) _request: WebPart =
+let finish (load: Load) (save: Save) _request: WebPart =
     let result, state =
-        fetch() |> Domain.ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+        load() |> Domain.ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
 
     let response =
         match result with
@@ -155,9 +153,9 @@ let finish (fetch: GetState) (store: UpdateState) _request: WebPart =
             |> Domain.ingestMergeUpdate (MergeMessage.Success)
             |> snd
 
-        store mergedState
+        save mergedState
     | _ ->
-        store state
+        save state
 
     response
     |> toJson
