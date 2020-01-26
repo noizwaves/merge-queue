@@ -18,6 +18,8 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
+    1.  remove the floating private helpers (inBatch, inRunningBatch, etc)
+    1.  RunnableBatch.toPlanned
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
     1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
 

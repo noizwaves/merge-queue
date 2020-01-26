@@ -28,6 +28,40 @@ module Batch =
     let toPullRequests (Batch batch): List<PullRequest> =
         batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
+    let contains (id: PullRequestID) (batch: Batch): bool =
+        batch
+        |> toPullRequests
+        |> List.map (fun pr -> pr.id)
+        |> List.contains id
+
+    let length (Batch batch): int =
+        List.length batch
+
+    let splitAt (index: int) (Batch batch): Batch * Batch =
+        List.splitAt index batch |> (fun (a, b) -> Batch a, Batch b)
+
+module RunnableBatch =
+    let toPullRequests (RunnableBatch batch): List<PullRequest> =
+        Batch.toPullRequests batch
+
+    let contains (id: PullRequestID) (RunnableBatch batch): bool =
+        batch |> Batch.contains id
+
+module MergeableBatch =
+    let toPullRequests (MergeableBatch batch): List<PullRequest> =
+        Batch.toPullRequests batch
+
+    let contains (id: PullRequestID) (MergeableBatch batch): bool =
+        batch |> Batch.contains id
+
+module BisectedBatch =
+    // SMELL: kinda stinky, such unwrapping
+    let addBisectPathSegment (segment: bool) (BisectedBatch(Batch batch)): BisectedBatch =
+        batch
+        |> List.map (fun (pr, a) -> pr, a @ [ segment ])
+        |> Batch
+        |> BisectedBatch
+
 module AttemptQueue =
     let empty: AttemptQueue =
         AttemptQueue []
@@ -74,11 +108,11 @@ module CurrentBatch =
             None
         | Running batch ->
             batch
-            |> Batch.toPullRequests
+            |> RunnableBatch.toPullRequests
             |> Some
         | Merging batch ->
             batch
-            |> Batch.toPullRequests
+            |> MergeableBatch.toPullRequests
             |> Some
 
     let toPullRequestIds (batch: CurrentBatch): Option<List<PullRequestID>> =
@@ -112,7 +146,7 @@ let private inBatch (id: PullRequestID) (Batch batch): bool =
 let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
     match current with
     | Running batch ->
-        inBatch id batch
+        batch |> RunnableBatch.contains id
     | Merging _ ->
         false
     | NoBatch ->
@@ -121,9 +155,9 @@ let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
 let private inCurrentBatch (id: PullRequestID) (current: CurrentBatch): bool =
     match current with
     | Running batch ->
-        inBatch id batch
+        batch |> RunnableBatch.contains id
     | Merging batch ->
-        inBatch id batch
+        batch |> MergeableBatch.contains id
     | NoBatch ->
         false
 
@@ -147,8 +181,8 @@ let prepareForQueue (pr: PullRequest): Choice<PassingPullRequest, NaughtyPullReq
     | BuildPending -> NaughtyPullRequest pr |> Choice2Of2
     | BuildFailure -> NaughtyPullRequest pr |> Choice2Of2
 
-// TODO: remove unwrapping of AttemptQueue here
-let pickNextBatch (AttemptQueue queue): Option<Batch * AttemptQueue> =
+// TODO: remove unwrapping of AttemptQueue here?
+let pickNextBatch (AttemptQueue queue): Option<RunnableBatch * AttemptQueue> =
     match queue with
     | [] -> None
     | (headPr, headA) :: tail ->
@@ -158,35 +192,37 @@ let pickNextBatch (AttemptQueue queue): Option<Batch * AttemptQueue> =
         let batch =
             (headPr, headA) :: matching |> Batch
 
-        Some(batch, AttemptQueue remaining)
+        Some(RunnableBatch batch, AttemptQueue remaining)
 
-let bisect (Batch batch): Option<Batch * Batch> =
-    if List.length batch <= 1 then
+let bisect (RunnableBatch batch): Option<BisectedBatch * BisectedBatch> =
+    // TODO: encapsulate the branch and midpoitn calc into Batch.splitInHalf
+    if Batch.length batch <= 1 then
         None
     else
-        let midpoint = (List.length batch) / 2
-        List.splitAt midpoint batch
-        |> fun (a, b) -> Batch a, Batch b
+        let midpoint = (Batch.length batch) / 2
+        Batch.splitAt midpoint batch
+        |> fun (a, b) -> BisectedBatch a, BisectedBatch b
+        |> fun (a, b) -> BisectedBatch.addBisectPathSegment true a, BisectedBatch.addBisectPathSegment false b
         |> Some
 
-let completeBuild (batch: Batch): CurrentBatch =
-    Merging batch
+let completeBuild (RunnableBatch batch): MergeableBatch =
+    MergeableBatch batch
 
-let failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
+let failWithoutRetry (RunnableBatch batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
     queue, NoBatch
 
-let failWithRetry (Batch first) (Batch second) (AttemptQueue existing): AttemptQueue * CurrentBatch =
-    // TODO: use Batch.map to increment the bisect paths
-    let first' = first |> List.map (fun (pr, a) -> pr, a @ [ true ])
-    let second' = second |> List.map (fun (pr, a) -> pr, a @ [ false ])
-    // TODO: use AttemptQueue.prepend here
-    let queue = first' @ second' @ existing |> AttemptQueue
+let failWithRetry (BisectedBatch first) (BisectedBatch second) (existing: AttemptQueue): AttemptQueue * CurrentBatch =
+    let queue =
+        existing
+        |> AttemptQueue.prepend second
+        |> AttemptQueue.prepend first
+
     queue, NoBatch
 
-let completeMerge (batch: Batch) (existing: AttemptQueue): AttemptQueue * CurrentBatch =
+let completeMerge (batch: MergeableBatch) (existing: AttemptQueue): AttemptQueue * CurrentBatch =
     existing, NoBatch
 
-let failMerge (batch: Batch) (queue: AttemptQueue): CurrentBatch * AttemptQueue =
+let failMerge (MergeableBatch batch) (queue: AttemptQueue): CurrentBatch * AttemptQueue =
     NoBatch, AttemptQueue.prepend batch queue
 
 let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
@@ -222,13 +258,14 @@ let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (SinBin sinBin
     |> SinBin
 
 // SMELL: these signatures are huge! Why?
-let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
+let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (RunnableBatch batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
-    let inRunningBatch = batch |> inBatch id
+    let inRunningBatch = batch |> Batch.contains id
 
     if inRunningBatch then
         // TODO: moving PRs back to queue should coincide with changing the CurrentBatch
         // ... it's not obvious that updateSha.. will move PRs into the queue
+        // TODO: also, consider adding RunnableBatch.updateSha -> Batch
         let newQueue, newSinBin =
             updateShaInQueue id newValue (AttemptQueue.prepend batch queue) sinBin
 
@@ -274,7 +311,7 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
             | Some(batch, remainder) ->
                 let batchIds =
                     batch
-                    |> Batch.toPullRequests
+                    |> RunnableBatch.toPullRequests
                     |> List.map (fun pr -> pr.id)
                 PlannedBatch batchIds :: (splitIntoBatches remainder)
             | None ->
@@ -335,7 +372,7 @@ let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue 
         match isCurrent, isEnqueued, isSinBinned with
         | true, _, _ ->
             match model.batch with
-            | Running batch ->
+            | Running(RunnableBatch batch) ->
                 let newQueue =
                     model.queue
                     |> AttemptQueue.prepend batch
@@ -387,7 +424,7 @@ let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
     | NoBatch, queue ->
         match pickNextBatch queue with
         | Some(batch, remaining) ->
-            let pullRequests = batch |> Batch.toPullRequests
+            let pullRequests = batch |> RunnableBatch.toPullRequests
             PerformBatchBuild pullRequests,
             { model with
                   batch = Running batch
@@ -419,7 +456,7 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                       queue = newQueue
                       batch = newBatch }
 
-            let b = batch |> Batch.toPullRequests
+            let b = batch |> RunnableBatch.toPullRequests
             ReportBuildFailureNoRetry b, newModel
 
         | Some(first, second) ->
@@ -430,13 +467,13 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                       queue = newQueue
                       batch = newBatch }
 
-            let b = batch |> Batch.toPullRequests
+            let b = batch |> RunnableBatch.toPullRequests
             ReportBuildFailureWithRetry b, newModel
 
     | Running succeeded, Success targetHead ->
         let newBatch = completeBuild succeeded
-        let newState = { model with batch = newBatch }
-        let pullRequests = succeeded |> Batch.toPullRequests
+        let newState = { model with batch = Merging newBatch }
+        let pullRequests = succeeded |> RunnableBatch.toPullRequests
         let result = PerformBatchMerge(pullRequests, targetHead)
         result, newState
 
@@ -468,12 +505,12 @@ let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeRe
                   queue = newQueue
                   batch = newBatch }
 
-        let pullRequests = merged |> Batch.toPullRequests
+        let pullRequests = merged |> MergeableBatch.toPullRequests
 
         MergeComplete pullRequests, newModel
     | Merging unmerged, MergeMessage.Failure ->
         let newBatch, newQueue = failMerge unmerged model.queue
-        let pullRequests = unmerged |> Batch.toPullRequests
+        let pullRequests = unmerged |> MergeableBatch.toPullRequests
 
         let newModel =
             { model with
@@ -504,7 +541,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
                       batch = NoBatch
                       sinBin = newSinBin }
 
-            let pullRequests = batch |> Batch.toPullRequests
+            let pullRequests = batch |> RunnableBatch.toPullRequests
             AbortRunningBatch(pullRequests, id), newModel
 
         else
@@ -524,13 +561,13 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
         NoOp, newModel
 
     | Merging batch ->
-        let inMergingBatch = batch |> inBatch id
+        let inMergingBatch = batch |> MergeableBatch.contains id
 
         if inMergingBatch then
             let newModel =
                 { modelWithNewSinBin with batch = NoBatch }
 
-            let pullRequests = batch |> Batch.toPullRequests
+            let pullRequests = batch |> MergeableBatch.toPullRequests
             AbortMergingBatch(pullRequests, id), newModel
         else
             let newQueue, newSinBin =
@@ -562,11 +599,11 @@ let peekCurrentBatch (model: MergeQueue): Option<List<PullRequest>> =
     | NoBatch -> None
     | Running batch ->
         batch
-        |> Batch.toPullRequests
+        |> RunnableBatch.toPullRequests
         |> Some
     | Merging batch ->
         batch
-        |> Batch.toPullRequests
+        |> MergeableBatch.toPullRequests
         |> Some
 
 let peekSinBin (model: MergeQueue): List<PullRequest> =

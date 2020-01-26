@@ -40,14 +40,19 @@ module DomainTypes =
 
     type SinBin = SinBin of List<NaughtyPullRequest>
 
-    // TODO: Split concept of BuildableBatch and Batch
-    // SMELL: Currently, Batch = AttemptQueue
     type Batch = Batch of List<PassingPullRequest * BisectPath>
 
+    type RunnableBatch = RunnableBatch of Batch
+
+    type MergeableBatch = MergeableBatch of Batch
+
+    type BisectedBatch = BisectedBatch of Batch
+
+    // RENAME: ActiveBatch
     type CurrentBatch =
         | NoBatch
-        | Running of Batch // running === building in some places, like build Status
-        | Merging of Batch
+        | Running of RunnableBatch
+        | Merging of MergeableBatch
 
     // aggregate root fo sure
     type MergeQueue =
@@ -70,13 +75,14 @@ module DomainTypes =
     type PrepareForQueue = PullRequest -> Choice<PassingPullRequest, NaughtyPullRequest>
 
     type AddToQueue = PassingPullRequest -> AttemptQueue -> AttemptQueue
+
     type RemoveFromQueue = PullRequestID -> AttemptQueue -> AttemptQueue
 
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
-    type PickNextBatch = AttemptQueue -> Option<Batch * AttemptQueue>
+    type PickNextBatch = AttemptQueue -> Option<RunnableBatch * AttemptQueue>
 
-    type Bisect = Batch -> Option<Batch * Batch>
+    type Bisect = RunnableBatch -> Option<BisectedBatch * BisectedBatch>
 
     //
     // Moving batches through the batch workflow
@@ -84,19 +90,19 @@ module DomainTypes =
 
     // Surely we cannot complete just *any*, maybe only running batches
     // We won't ever spit out Running or NoBatch...
-    type CompleteBuild = Batch -> CurrentBatch
+    type CompleteBuild = RunnableBatch -> MergeableBatch
 
     // only makes sense to do this on batches that failed to build
     // Batch argument should represent the retry-ability
-    type FailWithoutRetry = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    // Do we need to change current batch all the time in these methods?
+    type FailWithoutRetry = RunnableBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
 
-    // only makes sense to do this on batches that failed to build
-    // Batch argument should represent the retry-ability
-    type FailWithRetry = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    // SMLELL: Do we need to change current batch all the time in these methods?
+    type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
 
-    type CompleteMerge = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
+    type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
 
-    type FailMerge = Batch -> CurrentBatch
+    type FailMerge = MergeableBatch -> CurrentBatch
 
 
     // These feel kinda like application services...
