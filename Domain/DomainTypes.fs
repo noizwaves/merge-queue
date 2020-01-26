@@ -96,12 +96,11 @@ module DomainTypes =
     // Do we need to change current batch all the time in these methods?
     type FailWithoutRetry = RunnableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    // SMLELL: Do we need to change current batch all the time in these methods?
     type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    type CompleteMerge = AttemptQueue -> MergeableBatch -> (AttemptQueue * ActiveBatch)
+    type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    type FailMerge = AttemptQueue -> MergeableBatch -> AttemptQueue
+    type FailMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
 
     // These feel kinda like application services...
@@ -137,20 +136,4 @@ module DomainTypes =
 
     type UpdateStatuses = PullRequestID * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
 
-    //
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
-
-    // SMELL: These methods suspiciously return bools and seem dangerous to expose in the domain types
-    // AHA: these are like validation!!!!! used by the commands
-    type InQueue = PullRequestID -> AttemptQueue -> bool
-
-    type InSinBin = PullRequestID -> SinBin -> bool
-
-    type InBatch = PullRequestID -> Batch -> bool
-
-    type InRunningBatch = PullRequestID -> ActiveBatch -> bool
-
-// ? UpdateRunningBatch / ingestBuildUpdate
-// ? UpdateMergingBatch / ingestMergeUpdate
-// ? UpdatePullRequestSha / ingestPullRequestShaUpdate
-// ? UpdateStatuses / ingestPullRequestStatusUpdate

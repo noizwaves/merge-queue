@@ -130,6 +130,11 @@ module ActiveBatch =
         |> toPullRequests
         |> Option.map (List.map (fun pr -> pr.id))
 
+    let toPlanned (batch: ActiveBatch): Option<PlannedBatch> =
+        batch
+        |> toPullRequestIds
+        |> Option.map (fun ids -> PlannedBatch ids)
+
     let contains (id: PullRequestID) (batch: ActiveBatch): bool =
         batch
         |> toPullRequestIds
@@ -187,13 +192,12 @@ let bisect (RunnableBatch batch): Option<BisectedBatch * BisectedBatch> =
         |> Some
 
 let completeBuild (RunnableBatch batch): ActiveBatch =
-    MergeableBatch batch
-    |> Merging
+    MergeableBatch batch |> Merging
 
-let failWithoutRetry (RunnableBatch batch) (queue: AttemptQueue): AttemptQueue * ActiveBatch =
+let failWithoutRetry (queue: AttemptQueue) (RunnableBatch batch): AttemptQueue * ActiveBatch =
     queue, NoBatch
 
-let failWithRetry (BisectedBatch first) (BisectedBatch second) (existing: AttemptQueue): AttemptQueue * ActiveBatch =
+let failWithRetry (existing: AttemptQueue) (BisectedBatch first) (BisectedBatch second): AttemptQueue * ActiveBatch =
     let queue =
         existing
         |> AttemptQueue.prepend second
@@ -201,10 +205,10 @@ let failWithRetry (BisectedBatch first) (BisectedBatch second) (existing: Attemp
 
     queue, NoBatch
 
-let completeMerge (existing: AttemptQueue) (batch: MergeableBatch) : (AttemptQueue * ActiveBatch) =
+let completeMerge (existing: AttemptQueue) (batch: MergeableBatch): AttemptQueue * ActiveBatch =
     existing, NoBatch
 
-let failMerge (existing: AttemptQueue) (MergeableBatch batch): (AttemptQueue * ActiveBatch) =
+let failMerge (existing: AttemptQueue) (MergeableBatch batch): AttemptQueue * ActiveBatch =
     AttemptQueue.prepend batch existing, NoBatch
 
 let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
@@ -301,16 +305,15 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
                 // SMELL: how could execution get here and result is empty?
                 []
 
-    let current =
-        model.activeBatch
-        |> ActiveBatch.toPullRequestIds
-        |> Option.map (fun prs -> [ PlannedBatch prs ])
-        |> Option.defaultValue []
+    let active =
+        model.activeBatch |> ActiveBatch.toPlanned
 
     let fromQueue =
         model.queue |> splitIntoBatches
 
-    current @ fromQueue
+    match active with
+    | Some b -> b :: fromQueue
+    | None -> fromQueue
 
 
 // Commands
@@ -432,7 +435,7 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
     | Running failed, Failure ->
         match bisect failed with
         | None ->
-            let queue, nextActive = model.queue |> failWithoutRetry failed
+            let queue, nextActive = failWithoutRetry model.queue failed
 
             let newModel =
                 { model with
@@ -443,7 +446,7 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
             ReportBuildFailureNoRetry prs, newModel
 
         | Some(first, second) ->
-            let queue, nextActive = model.queue |> failWithRetry first second
+            let queue, nextActive = failWithRetry model.queue first second
 
             let newModel =
                 { model with
@@ -481,7 +484,7 @@ type IngestMergeResult =
 let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeResult * MergeQueue =
     match model.activeBatch, message with
     | Merging merged, MergeMessage.Success ->
-        let queue, batch = merged |> completeMerge model.queue  
+        let queue, batch = merged |> completeMerge model.queue
 
         let newModel =
             { model with
