@@ -89,7 +89,7 @@ module DomainTypes =
 
     // Surely we cannot complete just *any*, maybe only running batches
     // We won't ever spit out Running or NoBatch...
-    type CompleteBuild = RunnableBatch -> MergeableBatch
+    type CompleteBuild = RunnableBatch -> ActiveBatch
 
     // only makes sense to do this on batches that failed to build
     // Batch argument should represent the retry-ability
@@ -99,9 +99,9 @@ module DomainTypes =
     // SMLELL: Do we need to change current batch all the time in these methods?
     type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
-    type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
+    type CompleteMerge = AttemptQueue -> MergeableBatch -> (AttemptQueue * ActiveBatch)
 
-    type FailMerge = MergeableBatch -> ActiveBatch
+    type FailMerge = AttemptQueue -> MergeableBatch -> AttemptQueue
 
 
     // These feel kinda like application services...
