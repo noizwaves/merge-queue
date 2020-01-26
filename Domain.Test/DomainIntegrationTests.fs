@@ -19,7 +19,6 @@ let private seven = pullRequest (pullRequestId 7777) (sha "00007777") [ passedCi
 let private eight = pullRequest (pullRequestId 8888) (sha "00008888") [ passedCircleCI ]
 
 
-
 [<Fact>]
 let ``Realistic workflow``() =
     // 1. Four enqueued but not started
@@ -62,7 +61,7 @@ let ``Realistic workflow``() =
 
     ``First batch running some additional enqueued``
     |> peekCurrentQueue
-    |> should equal [ one; two; three; four; six ]
+    |> should equal [ six ]
 
     ``First batch running some additional enqueued``
     |> peekCurrentBatch
@@ -92,7 +91,7 @@ let ``Realistic workflow``() =
 
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> peekCurrentQueue
-    |> should equal [ one; two; three; four; seven ]
+    |> should equal [ seven ]
 
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> peekCurrentBatch
@@ -152,7 +151,7 @@ let ``Realistic workflow``() =
 
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> peekCurrentQueue
-    |> should equal [ one; two; three; four; seven; six_v3; eight ]
+    |> should equal [ three; four; seven; six_v3; eight ]
 
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> peekCurrentBatch
@@ -261,7 +260,7 @@ let ``Realistic workflow``() =
 
     ``Six's build starts then passes, start a batch``
     |> peekCurrentQueue
-    |> should equal [ seven; eight; six_v5 ]
+    |> should be Empty
 
     ``Six's build starts then passes, start a batch``
     |> peekCurrentBatch

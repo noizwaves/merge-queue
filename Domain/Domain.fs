@@ -45,7 +45,7 @@ let private inSinBin (id: PullRequestID) (sinBin: SinBin): bool =
 
 let private inBatch (id: PullRequestID) (batch: Batch): bool =
     batch
-    |> List.map (fun pr -> pr.id)
+    |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
     |> List.contains id
 
 let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
@@ -56,6 +56,17 @@ let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
         false
     | NoBatch ->
         false
+
+let private inCurrentBatch (id: PullRequestID) (current: CurrentBatch): bool =
+    match current with
+    | Running batch ->
+        inBatch id batch
+    | Merging batch ->
+        inBatch id batch
+    | NoBatch ->
+        false
+
+
 
 // Domain Logic
 
@@ -86,16 +97,17 @@ let addPullRequestToQueue (pullRequest: PassingPullRequest) (queue: AttemptQueue
 let addPullRequestToSinBin (pullRequest: NaughtyPullRequest) (sinBin: SinBin): SinBin =
     sinBin @ [ pullRequest ]
 
-let pickNextBatch (queue: AttemptQueue): Option<Batch> =
+let pickNextBatch (queue: AttemptQueue): Option<Batch * AttemptQueue> =
     match queue with
     | [] -> None
-    | head :: tail ->
-        let matching =
-            tail |> List.filter (fun (_, a) -> a = (head |> snd))
+    | (headPr, headA) :: tail ->
+        let matching, remaining =
+            tail |> List.partition (fun (_, a) -> a = headA)
 
-        let batch = head :: matching |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        let batch =
+            (headPr, headA) :: matching
 
-        Some batch
+        Some(batch, remaining)
 
 let bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
@@ -107,28 +119,20 @@ let bisect (batch: Batch): Option<Batch * Batch> =
 let completeBuild (batch: Batch): CurrentBatch =
     Merging batch
 
-let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
-    let newQueue = queue |> removeAllFromQueue batch
-    newQueue, NoBatch
+let failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
+    queue, NoBatch
 
-let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
-    let firstIds = first |> List.map (fun pr -> pr.id)
-    let secondIds = second |> List.map (fun pr -> pr.id)
+let failWithRetry (first: Batch) (second: Batch) (existing: AttemptQueue): AttemptQueue * CurrentBatch =
+    let first' = first |> List.map (fun (pr, a) -> pr, a @ [ true ])
+    let second' = second |> List.map (fun (pr, a) -> pr, a @ [ false ])
+    let queue = first' @ second' @ existing
+    queue, NoBatch
 
-    let newQueue =
-        queue
-        |> List.map (fun ((PassingPullRequest pr), a) ->
-            if List.contains pr.id firstIds then (PassingPullRequest pr, a @ [ true ])
-            elif List.contains pr.id secondIds then (PassingPullRequest pr, a @ [ false ])
-            else PassingPullRequest pr, a)
-    newQueue, NoBatch
+let completeMerge (batch: Batch) (existing: AttemptQueue): AttemptQueue * CurrentBatch =
+    existing, NoBatch
 
-let private completeMerge (batch: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
-    let newQueue = queue |> removeAllFromQueue batch
-    newQueue, NoBatch
-
-let private failMerge (_batch: Batch): CurrentBatch =
-    NoBatch
+let failMerge (batch: Batch) (queue: AttemptQueue): CurrentBatch * AttemptQueue =
+    NoBatch, batch @ queue
 
 let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
     // get PR (and update SHA)
@@ -167,8 +171,9 @@ let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (batch: 
     let inRunningBatch = batch |> inBatch id
 
     if inRunningBatch then
+        // TODO: moving PRs back to queue should coincide with changing the CurrentBatch
         let newQueue, newSinBin =
-            updateShaInQueue id newValue queue sinBin
+            updateShaInQueue id newValue (batch @ queue) sinBin
 
         true, newQueue, newSinBin
 
@@ -230,24 +235,26 @@ let enqueue (pullRequest: PullRequest) (model: MergeQueue): EnqueueResult * Merg
 
 type DequeueResult =
     | Dequeued
-    | DequeuedAndAbortRunningBatch of Batch * PullRequestID
+    | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
     | RejectedInMergingBatch
     | NotFound
 
 let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue =
+    // TODO: Concept here, "locate pull request"
+    let isCurrent = model.batch |> inCurrentBatch id
     let isEnqueued = model.queue |> inQueue id
     let isSinBinned = model.sinBin |> inSinBin id
 
     let result, newModel =
-        match isEnqueued, isSinBinned with
-        | true, _ ->
+        match isCurrent, isEnqueued, isSinBinned with
+        | true, _, _ ->
             match model.batch with
             | Running batch ->
-                let result, newBatch =
-                    if inBatch id batch then DequeuedAndAbortRunningBatch(batch, id), NoBatch
-                    else Dequeued, model.batch
+                let newQueue = (batch |> removeFromQueue id) @ model.queue
+                let newBatch = NoBatch
 
-                let newQueue = model.queue |> removeFromQueue id
+                let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+                let result = DequeuedAndAbortRunningBatch(pullRequests, id)
 
                 let newModel =
                     { model with
@@ -255,23 +262,22 @@ let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue 
                           batch = newBatch }
                 result, newModel
 
-            | Merging batch ->
-                let result, newQueue =
-                    if inBatch id batch then RejectedInMergingBatch, model.queue
-                    else Dequeued, model.queue |> removeFromQueue id
-
-                let newModel = { model with queue = newQueue }
-                result, newModel
+            | Merging _ ->
+                RejectedInMergingBatch, model
 
             | NoBatch ->
-                let newQueue = model.queue |> removeFromQueue id
-                Dequeued, { model with queue = newQueue }
+                // SMELL: this is an impossible branch to get into...
+                failwith "PullRequest cannot be in an empty batch"
 
-        | _, true ->
+        | _, true, _ ->
+            let newQueue = model.queue |> removeFromQueue id
+            Dequeued, { model with queue = newQueue }
+
+        | _, _, true ->
             let newSinBin = model.sinBin |> List.where (fun (NaughtyPullRequest pr) -> pr.id <> id)
             Dequeued, { model with sinBin = newSinBin }
 
-        | false, false ->
+        | false, false, false ->
             NotFound, model
 
     result, newModel
@@ -285,14 +291,17 @@ type StartBatchResult =
 // maybe make start batch private, and call it inside enqueue && updateStatus?
 let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
     match model.batch, model.queue with
-    | _, [] -> EmptyQueue, model
     | Running _, _ -> AlreadyRunning, model
     | Merging _, _ -> AlreadyRunning, model
+    | NoBatch, [] -> EmptyQueue, model
     | NoBatch, queue ->
-        let nextBatch = queue |> pickNextBatch
-        match nextBatch with
-        | Some batch ->
-            PerformBatchBuild batch, { model with batch = Running batch }
+        match pickNextBatch queue with
+        | Some(batch, remaining) ->
+            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            PerformBatchBuild pullRequests,
+            { model with
+                  batch = Running batch
+                  queue = remaining }
         | None ->
             // SMELL: impossible code path, all non-empty queues have a next batch...
             // SMELL: how could execution get here and result is empty?
@@ -319,7 +328,9 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                 { model with
                       queue = newQueue
                       batch = newBatch }
-            ReportBuildFailureNoRetry batch, newModel
+
+            let b = batch |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+            ReportBuildFailureNoRetry b, newModel
 
         | Some(first, second) ->
             let newQueue, newBatch = model.queue |> failWithRetry first second
@@ -328,12 +339,15 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                 { model with
                       queue = newQueue
                       batch = newBatch }
-            ReportBuildFailureWithRetry batch, newModel
+
+            let b = batch |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+            ReportBuildFailureWithRetry b, newModel
 
     | Running succeeded, Success targetHead ->
         let newBatch = completeBuild succeeded
         let newState = { model with batch = newBatch }
-        let result = PerformBatchMerge(succeeded, targetHead)
+        let b = succeeded |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+        let result = PerformBatchMerge(b, targetHead)
         result, newState
 
     | NoBatch, Failure ->
@@ -364,18 +378,25 @@ let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeRe
                   queue = newQueue
                   batch = newBatch }
 
-        MergeComplete merged, newModel
-    | Merging batch, MergeMessage.Failure ->
-        let newBatch = failMerge batch
-        let newModel = { model with batch = newBatch }
-        ReportMergeFailure batch, newModel
+        let b = merged |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+
+        MergeComplete b, newModel
+    | Merging unmerged, MergeMessage.Failure ->
+        let newBatch, newQueue = failMerge model.queue unmerged
+        let pullRequests = unmerged |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+
+        let newModel =
+            { model with
+                  batch = newBatch
+                  queue = newQueue }
+        ReportMergeFailure pullRequests, newModel
     | _, _ ->
         IngestMergeResult.NoOp, model
 
 type UpdatePullRequestResult =
     | NoOp
-    | AbortRunningBatch of Batch * PullRequestID
-    | AbortMergingBatch of Batch * PullRequestID
+    | AbortRunningBatch of List<PullRequest> * PullRequestID
+    | AbortMergingBatch of List<PullRequest> * PullRequestID
 
 let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue): UpdatePullRequestResult * MergeQueue =
     let newSinBin = model.sinBin |> updateShaInSinBin id newValue
@@ -392,7 +413,9 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
                       queue = newQueue
                       batch = NoBatch
                       sinBin = newSinBin }
-            AbortRunningBatch(batch, id), newModel
+
+            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            AbortRunningBatch(pullRequests, id), newModel
 
         else
             let newModel =
@@ -415,14 +438,16 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
 
         if inMergingBatch then
             // fast fail the current batch, an unsafe PR could be about to merge into target
-            let newQueue = modelWithNewSinBin.queue |> removeAllFromQueue batch
+            let b = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            let newQueue = modelWithNewSinBin.queue |> removeAllFromQueue b
 
             let newModel =
                 { modelWithNewSinBin with
                       queue = newQueue
                       batch = NoBatch }
 
-            AbortMergingBatch(batch, id), newModel
+            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            AbortMergingBatch(pullRequests, id), newModel
         else
             let newQueue, newSinBin =
                 updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -448,11 +473,17 @@ let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses
 let peekCurrentQueue (model: MergeQueue): List<PullRequest> =
     model.queue |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
-let peekCurrentBatch (model: MergeQueue): Option<Batch> =
+let peekCurrentBatch (model: MergeQueue): Option<List<PullRequest>> =
     match model.batch with
     | NoBatch -> None
-    | Running batch -> Some batch
-    | Merging batch -> Some batch
+    | Running batch ->
+        batch
+        |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        |> Some
+    | Merging batch ->
+        batch
+        |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        |> Some
 
 let peekSinBin (model: MergeQueue): List<PullRequest> =
     model.sinBin |> List.map (fun (NaughtyPullRequest pr) -> pr)
@@ -463,11 +494,9 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
         | [] ->
             []
         | _ ->
-            let nextBatch = pickNextBatch queue
-            match nextBatch with
-            | Some batch ->
-                let batchIds = batch |> List.map (fun pr -> pr.id)
-                let remainder = removeAllFromQueue batch queue
+            match pickNextBatch queue with
+            | Some(batch, remainder) ->
+                let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
                 PlannedBatch batchIds :: (splitIntoBatches remainder)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
@@ -476,17 +505,15 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
 
     let current =
         match model.batch with
-        | NoBatch -> None
-        | Running batch -> Some batch
-        | Merging batch -> Some batch
+        | NoBatch -> []
+        | Running batch ->
+            let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+            [ PlannedBatch batchIds ]
+        | Merging batch ->
+            let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+            [ PlannedBatch batchIds ]
 
-    let remainder =
-        match current with
-        | None -> model.queue
-        | Some batch -> removeAllFromQueue batch model.queue
+    let fromQueue =
+        model.queue |> splitIntoBatches
 
-    match current with
-    | None -> remainder |> splitIntoBatches
-    | Some batch ->
-        let batchIds = batch |> List.map (fun pr -> pr.id)
-        PlannedBatch batchIds :: (remainder |> splitIntoBatches)
+    current @ fromQueue

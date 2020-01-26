@@ -40,8 +40,9 @@ module DomainTypes =
 
     type SinBin = List<NaughtyPullRequest>
 
-    // TOOD: Batch should be List<PassingPullRequest>
-    type Batch = List<PullRequest>
+    // TODO: Split concept of BuildableBatch and Batch
+    // SMELL: Currently, Batch = AttemptQueue
+    type Batch = List<PassingPullRequest * BisectPath>
 
     type CurrentBatch =
         | NoBatch
@@ -57,6 +58,7 @@ module DomainTypes =
     // A batch from this list should not be a batch that can be used for other functions
     // so more like a List<PreviewBatch> or List<PlannedBatch>
     type PlannedBatch = PlannedBatch of List<PullRequestID>
+
     type ExecutionPlan = List<PlannedBatch>
 
     // Function types
@@ -90,9 +92,11 @@ module DomainTypes =
     type CompleteBuild = Batch -> CurrentBatch
 
     // only makes sense to do this on batches that failed to build
+    // Batch argument should represent the retry-ability
     type FailWithoutRetry = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
 
     // only makes sense to do this on batches that failed to build
+    // Batch argument should represent the retry-ability
     type FailWithRetry = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)
 
     type CompleteMerge = Batch -> AttemptQueue -> (AttemptQueue * CurrentBatch)

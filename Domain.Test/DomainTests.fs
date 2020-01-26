@@ -254,7 +254,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> should be Empty
 
     state
     |> peekSinBin
@@ -285,7 +285,7 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> should be Empty
 
     state
     |> peekSinBin
@@ -302,7 +302,7 @@ let ``Start a batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> should be Empty
 
     state
     |> peekCurrentBatch
@@ -324,7 +324,7 @@ let ``Attempt to start a second concurrent batch``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> should be Empty
 
     state
     |> peekCurrentBatch
@@ -366,7 +366,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
 
     state
     |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> should be Empty
 
     state
     |> peekCurrentBatch
@@ -583,8 +583,8 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
     result |> should equal UpdatePullRequestResult.NoOp
 
     state
-    |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> peekCurrentBatch
+    |> should equal (Some [ one; two ])
 
     // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
@@ -604,8 +604,8 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
     result |> should equal UpdatePullRequestResult.NoOp
 
     state
-    |> peekCurrentQueue
-    |> should equal [ one; two ]
+    |> peekCurrentBatch
+    |> should equal (Some [ one; two ])
 
     // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
@@ -742,5 +742,9 @@ let ``Failed batches are bisected upon build failure``() =
     secondResult |> should equal (StartBatchResult.PerformBatchBuild [ one ])
 
     secondState
+    |> peekCurrentBatch
+    |> should equal (Some [ one ])
+
+    secondState
     |> peekCurrentQueue
-    |> should equal [ one; two; three; four ]
+    |> should equal [ two; three; four ]
