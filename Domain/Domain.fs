@@ -30,17 +30,17 @@ let getPullRequestIDValue (PullRequestID id): int =
 // Helpers
 let private removeAllFromQueue (toRemove: List<PullRequest>) (queue: AttemptQueue): AttemptQueue =
     let removeIds = toRemove |> List.map (fun pr -> pr.id)
-    queue |> List.filter (fun (pr, _) -> List.contains pr.id removeIds |> not)
+    queue |> List.filter (fun ((PassingPullRequest pr), _) -> List.contains pr.id removeIds |> not)
 
 let private inQueue (id: PullRequestID) (queue: AttemptQueue): bool =
     queue
     |> List.map fst
-    |> List.map (fun pr -> pr.id)
+    |> List.map (fun (PassingPullRequest pr) -> pr.id)
     |> List.contains id
 
 let private inSinBin (id: PullRequestID) (sinBin: SinBin): bool =
     sinBin
-    |> List.map (fun pr -> pr.id)
+    |> List.map (fun (NaughtyPullRequest pr) -> pr.id)
     |> List.contains id
 
 let private inBatch (id: PullRequestID) (batch: Batch): bool =
@@ -60,7 +60,7 @@ let private inRunningBatch (id: PullRequestID) (current: CurrentBatch): bool =
 // Domain Logic
 
 let removeFromQueue (id: PullRequestID) (queue: AttemptQueue): AttemptQueue =
-    queue |> List.filter (fun (pr, _) -> pr.id <> id)
+    queue |> List.filter (fun ((PassingPullRequest pr), _) -> pr.id <> id)
 
 let getBuildStatus (pullRequest: PullRequest): BuildStatus =
     match pullRequest.statuses with
@@ -74,10 +74,16 @@ let getBuildStatus (pullRequest: PullRequest): BuildStatus =
         | _, Some _ -> BuildPending
         | _, _ -> BuildSuccess
 
-let addPullRequestToQueue (pullRequest: PullRequest) (queue: AttemptQueue): AttemptQueue =
+let prepareForQueue (pr: PullRequest): Choice<PassingPullRequest, NaughtyPullRequest> =
+    match getBuildStatus pr with
+    | BuildSuccess -> PassingPullRequest pr |> Choice1Of2
+    | BuildPending -> NaughtyPullRequest pr |> Choice2Of2
+    | BuildFailure -> NaughtyPullRequest pr |> Choice2Of2
+
+let addPullRequestToQueue (pullRequest: PassingPullRequest) (queue: AttemptQueue): AttemptQueue =
     queue @ [ pullRequest, [] ]
 
-let addPullRequestToSinBin (pullRequest: PullRequest) (sinBin: SinBin): SinBin =
+let addPullRequestToSinBin (pullRequest: NaughtyPullRequest) (sinBin: SinBin): SinBin =
     sinBin @ [ pullRequest ]
 
 let pickNextBatch (queue: AttemptQueue): Batch =
@@ -87,7 +93,7 @@ let pickNextBatch (queue: AttemptQueue): Batch =
         let matching =
             tail |> List.filter (fun (_, a) -> a = (head |> snd))
 
-        head :: matching |> List.map fst
+        head :: matching |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
 let bisect (batch: Batch): Option<Batch * Batch> =
     if List.length batch <= 1 then
@@ -103,16 +109,16 @@ let private failWithoutRetry (batch: Batch) (queue: AttemptQueue) =
     let newQueue = queue |> removeAllFromQueue batch
     newQueue, NoBatch
 
-let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue) =
+let private failWithRetry (first: Batch) (second: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
     let firstIds = first |> List.map (fun pr -> pr.id)
     let secondIds = second |> List.map (fun pr -> pr.id)
 
     let newQueue =
         queue
-        |> List.map (fun (pr, a) ->
-            if List.contains pr.id firstIds then (pr, a @ [ true ])
-            elif List.contains pr.id secondIds then (pr, a @ [ false ])
-            else pr, a)
+        |> List.map (fun ((PassingPullRequest pr), a) ->
+            if List.contains pr.id firstIds then (PassingPullRequest pr, a @ [ true ])
+            elif List.contains pr.id secondIds then (PassingPullRequest pr, a @ [ false ])
+            else PassingPullRequest pr, a)
     newQueue, NoBatch
 
 let private completeMerge (batch: Batch) (queue: AttemptQueue): AttemptQueue * CurrentBatch =
@@ -126,26 +132,32 @@ let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: Attempt
     // get PR (and update SHA)
     let updatedPr =
         queue
-        |> List.tryFind (fun (pr, _) -> pr.id = id)
-        |> Option.map (fun (pr, _) -> { pr with sha = newValue })
+        |> List.tryFind (fun ((PassingPullRequest pr), _) -> pr.id = id)
+        |> Option.map (fun ((PassingPullRequest pr), _) -> { pr with sha = newValue })
+
+    // we know it is naughty because it *should* have empty statuses
+    // which implies it is naughty, but we don't call PrepareForQueue
+
+    // TODO: a sha update should always clear the commit statuses
 
     // move to the sin bin
     let newSinBin =
         match updatedPr with
         | None -> sinBin
-        | Some item -> sinBin @ [ item ]
+        | Some item -> sinBin @ [ NaughtyPullRequest item ]
 
     // from the queue
     let newQueue =
-        queue |> List.filter (fun (pr, _) -> pr.id <> id)
+        queue |> List.filter (fun ((PassingPullRequest pr), _) -> pr.id <> id)
 
     newQueue, newSinBin
 
 let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (sinBin: SinBin): SinBin =
+    // TODO: a sha update should always clear the commit statuses
     sinBin
-    |> List.map (fun pr ->
-        if pr.id = id then { pr with sha = newValue }
-        else pr)
+    |> List.map (fun (NaughtyPullRequest pr) ->
+        if pr.id = id then NaughtyPullRequest { pr with sha = newValue }
+        else NaughtyPullRequest pr)
 
 // SMELL: these signatures are huge! Why?
 let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (batch: Batch) (queue: AttemptQueue)
@@ -170,24 +182,21 @@ let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses
     (sinBin: SinBin): AttemptQueue * SinBin =
     // check to see if we should pull the matching commit out of the "sin bin"
     let matching =
-        sinBin |> List.tryFind (fun pr -> pr.id = id && pr.sha = buildSha)
+        sinBin |> List.tryFind (fun (NaughtyPullRequest pr) -> pr.id = id && pr.sha = buildSha)
 
     match matching with
-    | Some pr ->
+    | Some(NaughtyPullRequest pr) ->
         // update PR's status
         let updated = { pr with statuses = statuses }
         let updatedSinBin =
-            sinBin |> List.where (fun p -> p <> pr)
+            sinBin |> List.where (fun (NaughtyPullRequest p) -> p <> pr)
 
-        match getBuildStatus updated with
-        | BuildSuccess ->
-            let newQueue = queue @ [ updated, [] ]
+        match prepareForQueue updated with
+        | Choice1Of2 passing ->
+            let newQueue = queue @ [ passing, [] ]
             newQueue, updatedSinBin
-        | BuildFailure ->
-            let newSinBin = updatedSinBin @ [ updated ]
-            queue, newSinBin
-        | BuildPending ->
-            let newSinBin = updatedSinBin @ [ updated ]
+        | Choice2Of2 naughty ->
+            let newSinBin = updatedSinBin @ [ naughty ]
             queue, newSinBin
     | None ->
         queue, sinBin
@@ -201,19 +210,20 @@ type EnqueueResult =
     | AlreadyEnqueued
 
 let enqueue (pullRequest: PullRequest) (model: MergeQueue): EnqueueResult * MergeQueue =
-    let buildStatus = getBuildStatus pullRequest
+    let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
     let alreadyEnqueued = model.queue |> inQueue pullRequest.id
     let alreadySinBinned = model.sinBin |> inSinBin pullRequest.id
+    let prepared = prepareForQueue pullRequest
 
-    match buildStatus, alreadyEnqueued, alreadySinBinned with
-    | BuildFailure, _, _ -> RejectedFailingBuildStatus, model
-    | _, true, _ -> AlreadyEnqueued, model
-    | _, _, true -> AlreadyEnqueued, model
-    | BuildPending, false, false ->
-        let newModel = { model with sinBin = addPullRequestToSinBin pullRequest model.sinBin }
+    match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
+    | true, _, _, _ -> RejectedFailingBuildStatus, model
+    | _, true, _, _ -> AlreadyEnqueued, model
+    | _, _, true, _ -> AlreadyEnqueued, model
+    | false, false, false, Choice2Of2 naughty ->
+        let newModel = { model with sinBin = addPullRequestToSinBin naughty model.sinBin }
         SinBinned, newModel
-    | BuildSuccess, false, false ->
-        let newModel = { model with queue = addPullRequestToQueue pullRequest model.queue }
+    | false, false, false, Choice1Of2 passing ->
+        let newModel = { model with queue = addPullRequestToQueue passing model.queue }
         Enqueued, newModel
 
 type DequeueResult =
@@ -256,7 +266,7 @@ let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue 
                 Dequeued, { model with queue = newQueue }
 
         | _, true ->
-            let newSinBin = model.sinBin |> List.where (fun pr -> pr.id <> id)
+            let newSinBin = model.sinBin |> List.where (fun (NaughtyPullRequest pr) -> pr.id <> id)
             Dequeued, { model with sinBin = newSinBin }
 
         | false, false ->
@@ -428,7 +438,7 @@ let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses
 
 // Should these return DTOs?
 let peekCurrentQueue (model: MergeQueue): List<PullRequest> =
-    model.queue |> List.map fst
+    model.queue |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
 let peekCurrentBatch (model: MergeQueue): Option<Batch> =
     match model.batch with
@@ -436,8 +446,8 @@ let peekCurrentBatch (model: MergeQueue): Option<Batch> =
     | Running batch -> Some batch
     | Merging batch -> Some batch
 
-let peekSinBin (model: MergeQueue): SinBin =
-    model.sinBin
+let peekSinBin (model: MergeQueue): List<PullRequest> =
+    model.sinBin |> List.map (fun (NaughtyPullRequest pr) -> pr)
 
 let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
     let rec splitIntoBatches (queue: AttemptQueue): List<Batch> =

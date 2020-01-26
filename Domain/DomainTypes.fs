@@ -30,18 +30,23 @@ module DomainTypes =
         | BuildSuccess
         | BuildFailure
 
+    type BisectPath = List<bool>
+
+    type PassingPullRequest = PassingPullRequest of PullRequest
+
+    type AttemptQueue = List<PassingPullRequest * BisectPath>
+
+    type NaughtyPullRequest = NaughtyPullRequest of PullRequest
+
+    type SinBin = List<NaughtyPullRequest>
+
+    // TOOD: Batch should be List<PassingPullRequest>
     type Batch = List<PullRequest>
 
     type CurrentBatch =
         | NoBatch
         | Running of Batch // running === building in some places, like build Status
         | Merging of Batch
-
-    type BisectPath = List<bool>
-
-    type AttemptQueue = List<PullRequest * BisectPath>
-
-    type SinBin = List<PullRequest>
 
     // aggregate root fo sure
     type MergeQueue =
@@ -56,16 +61,19 @@ module DomainTypes =
     // Function types
 
     // Is this really something that happens in the domain? maybe is a private impl?
+    // TODO: deprecate this when we remove PRs from queue when batch starts
     type RemoveAllFromQueue = List<PullRequest> -> AttemptQueue -> AttemptQueue
 
     type RemoveFromQueue = PullRequestID -> AttemptQueue -> AttemptQueue
 
-    // Only PullRequest.statuses field is used
+    // Only PullRequest.statuses field is used... DeriveBuildStatus?
     type GetBuildStatus = PullRequest -> BuildStatus
 
-    type AddToQueue = PullRequest -> AttemptQueue -> AttemptQueue
+    type PrepareForQueue = PullRequest -> Choice<PassingPullRequest, NaughtyPullRequest>
 
-    type AddToSinBin = PullRequest -> SinBin -> SinBin
+    type AddToQueue = PassingPullRequest -> AttemptQueue -> AttemptQueue
+
+    type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
     // SMELL: Empty AttemptQueue will not result in a batch... so Option<Batch>
     type PickNextBatch = AttemptQueue -> Batch
@@ -102,7 +110,6 @@ module DomainTypes =
     // result is maybe cancel the current batch
     type UpdateShaInRunningBatch = PullRequestID -> SHA -> Batch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
 
-
     type UpdateStatusesInSinBin = PullRequestID -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
 
 
@@ -119,12 +126,17 @@ module DomainTypes =
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command
-    type StartBatch = MergeQueue -> Option<Batch>
+    type StartBatch = MergeQueue -> MergeQueue
+
+    type UpdateSha = PullRequestID * SHA -> (MergeQueue -> MergeQueue)
+
+    type UpdateStatuses = PullRequestID * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
 
     //
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
 
     // SMELL: These methods suspiciously return bools and seem dangerous to expose in the domain types
+    // AHA: these are like validation!!!!! used by the commands
     type InQueue = PullRequestID -> AttemptQueue -> bool
 
     type InSinBin = PullRequestID -> SinBin -> bool

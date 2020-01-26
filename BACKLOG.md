@@ -19,6 +19,7 @@ Done
 
 1.  Refactor domain into Types & Functions & "Services"
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
+    1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
 
 Backlog
 1.  add assertions on the thrown away results
