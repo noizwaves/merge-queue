@@ -27,6 +27,9 @@ let commitStatus (context: string) (state: CommitStatusState): CommitStatus =
 let getPullRequestIDValue (PullRequestID id): int =
     id
 
+let toPullRequests (batch: Batch): List<PullRequest> =
+    batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+
 // Helpers
 let private inQueue (id: PullRequestID) (queue: AttemptQueue): bool =
     queue
@@ -250,7 +253,7 @@ let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue 
                 let newQueue = (batch |> removeFromQueue id) @ model.queue
                 let newBatch = NoBatch
 
-                let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+                let pullRequests = batch |> toPullRequests
                 let result = DequeuedAndAbortRunningBatch(pullRequests, id)
 
                 let newModel =
@@ -294,7 +297,7 @@ let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
     | NoBatch, queue ->
         match pickNextBatch queue with
         | Some(batch, remaining) ->
-            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            let pullRequests = batch |> toPullRequests
             PerformBatchBuild pullRequests,
             { model with
                   batch = Running batch
@@ -326,7 +329,7 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                       queue = newQueue
                       batch = newBatch }
 
-            let b = batch |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+            let b = batch |> toPullRequests
             ReportBuildFailureNoRetry b, newModel
 
         | Some(first, second) ->
@@ -337,14 +340,14 @@ let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildRe
                       queue = newQueue
                       batch = newBatch }
 
-            let b = batch |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+            let b = batch |> toPullRequests
             ReportBuildFailureWithRetry b, newModel
 
     | Running succeeded, Success targetHead ->
         let newBatch = completeBuild succeeded
         let newState = { model with batch = newBatch }
-        let b = succeeded |> List.map (fun ((PassingPullRequest pr), a) -> pr)
-        let result = PerformBatchMerge(b, targetHead)
+        let pullRequests = succeeded |> toPullRequests
+        let result = PerformBatchMerge(pullRequests, targetHead)
         result, newState
 
     | NoBatch, Failure ->
@@ -375,12 +378,12 @@ let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeRe
                   queue = newQueue
                   batch = newBatch }
 
-        let b = merged |> List.map (fun ((PassingPullRequest pr), a) -> pr)
+        let pullRequests = merged |> toPullRequests
 
-        MergeComplete b, newModel
+        MergeComplete pullRequests, newModel
     | Merging unmerged, MergeMessage.Failure ->
         let newBatch, newQueue = failMerge model.queue unmerged
-        let pullRequests = unmerged |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        let pullRequests = unmerged |> toPullRequests
 
         let newModel =
             { model with
@@ -411,7 +414,7 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
                       batch = NoBatch
                       sinBin = newSinBin }
 
-            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            let pullRequests = batch |> toPullRequests
             AbortRunningBatch(pullRequests, id), newModel
 
         else
@@ -435,10 +438,9 @@ let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue)
 
         if inMergingBatch then
             let newModel =
-                { modelWithNewSinBin with
-                      batch = NoBatch }
+                { modelWithNewSinBin with batch = NoBatch }
 
-            let pullRequests = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+            let pullRequests = batch |> toPullRequests
             AbortMergingBatch(pullRequests, id), newModel
         else
             let newQueue, newSinBin =
@@ -463,18 +465,18 @@ let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses
 
 // Should these return DTOs?
 let peekCurrentQueue (model: MergeQueue): List<PullRequest> =
-    model.queue |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+    model.queue |> toPullRequests
 
 let peekCurrentBatch (model: MergeQueue): Option<List<PullRequest>> =
     match model.batch with
     | NoBatch -> None
     | Running batch ->
         batch
-        |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        |> toPullRequests
         |> Some
     | Merging batch ->
         batch
-        |> List.map (fun ((PassingPullRequest pr), _) -> pr)
+        |> toPullRequests
         |> Some
 
 let peekSinBin (model: MergeQueue): List<PullRequest> =
@@ -488,7 +490,10 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
         | _ ->
             match pickNextBatch queue with
             | Some(batch, remainder) ->
-                let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+                let batchIds =
+                    batch
+                    |> toPullRequests
+                    |> List.map (fun pr -> pr.id)
                 PlannedBatch batchIds :: (splitIntoBatches remainder)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
@@ -499,10 +504,16 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
         match model.batch with
         | NoBatch -> []
         | Running batch ->
-            let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+            let batchIds =
+                batch
+                |> toPullRequests
+                |> List.map (fun pr -> pr.id)
             [ PlannedBatch batchIds ]
         | Merging batch ->
-            let batchIds = batch |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+            let batchIds =
+                batch
+                |> toPullRequests
+                |> List.map (fun pr -> pr.id)
             [ PlannedBatch batchIds ]
 
     let fromQueue =

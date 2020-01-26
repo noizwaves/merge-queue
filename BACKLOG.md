@@ -18,7 +18,7 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
-    1.  Batch.toPullRequests common function
+    1.  make Batch != AttemptQueue
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
     1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
 
