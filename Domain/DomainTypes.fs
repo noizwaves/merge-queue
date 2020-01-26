@@ -63,11 +63,6 @@ module DomainTypes =
 
     // Function types
 
-    // Is this really something that happens in the domain? maybe is a private impl?
-    // TODO: deprecate this when we remove PRs from queue when batch starts
-    type RemoveAllFromQueue = List<PullRequest> -> AttemptQueue -> AttemptQueue
-
-    type RemoveFromQueue = PullRequestID -> AttemptQueue -> AttemptQueue
 
     // Only PullRequest.statuses field is used... DeriveBuildStatus?
     type GetBuildStatus = PullRequest -> BuildStatus
@@ -75,6 +70,7 @@ module DomainTypes =
     type PrepareForQueue = PullRequest -> Choice<PassingPullRequest, NaughtyPullRequest>
 
     type AddToQueue = PassingPullRequest -> AttemptQueue -> AttemptQueue
+    type RemoveFromQueue = PullRequestID -> AttemptQueue -> AttemptQueue
 
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
