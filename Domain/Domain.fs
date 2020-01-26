@@ -147,6 +147,10 @@ module MergeQueue =
           sinBin = SinBin.empty
           activeBatch = NoBatch }
 
+module PlannedBatch =
+    let toPullRequestIds (PlannedBatch ids): List<PullRequestID> =
+        ids
+
 // Domain Logic
 
 let getBuildStatus (pullRequest: PullRequest): BuildStatus =

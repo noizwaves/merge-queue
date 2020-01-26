@@ -2,9 +2,10 @@ module MergeQueue.SimpleSandboxApi
 
 open Suave
 open Suave.Operators
-open MergeQueue.Domain
 open Newtonsoft.Json
 open Newtonsoft.Json.Serialization
+open MergeQueue.DomainTypes
+open MergeQueue.Domain
 
 
 let private toJson v =
@@ -12,9 +13,9 @@ let private toJson v =
     jsonSerializerSettings.ContractResolver <- CamelCasePropertyNamesContractResolver()
     JsonConvert.SerializeObject(v, jsonSerializerSettings)
 
-type GetState = unit -> State
+type GetState = unit -> MergeQueue
 
-type UpdateState = State -> unit
+type UpdateState = MergeQueue -> unit
 
 type PullRequestDTO =
     { id: int }
@@ -24,37 +25,34 @@ type BatchDTO = List<PullRequestDTO>
 type PlanDTO = List<BatchDTO>
 
 type ViewMergeQueueDTO =
-    { queue: List<PullRequestDTO>
-      sinBin: List<PullRequestDTO>
-      current: Option<BatchDTO>
-      plan: PlanDTO }
+    { current: Option<BatchDTO>
+      plan: PlanDTO
+      sinBin: List<PullRequestDTO> }
 
 let view (fetch: GetState) _request: WebPart =
     let state = fetch()
 
-    let queue =
-        state
-        |> peekCurrentQueue
-        |> List.map (fun pr -> { id = getPullRequestIDValue pr.id })
-
     let sinBin =
         state
         |> peekSinBin
-        |> List.map (fun pr -> { id = getPullRequestIDValue pr.id })
+        |> List.map (fun pr -> { id = PullRequestID.getValue pr.id })
 
     let current =
         state
         |> peekCurrentBatch
-        |> Option.map (fun batch -> batch |> List.map (fun pr -> { id = getPullRequestIDValue pr.id }))
+        |> Option.map (fun batch -> batch |> List.map (fun pr -> { id = PullRequestID.getValue pr.id }))
 
     let plan =
         state
         |> previewExecutionPlan
-        |> List.map (fun batch -> batch |> List.map (fun pr -> { id = getPullRequestIDValue pr.id }))
+        |> List.map (fun batch ->
+            batch
+            |> PlannedBatch.toPullRequestIds
+            |> List.map PullRequestID.getValue
+            |> List.map (fun id -> { id = id }))
 
     let dto =
-        { queue = queue
-          sinBin = sinBin
+        { sinBin = sinBin
           current = current
           plan = plan }
 
@@ -67,7 +65,7 @@ let enqueue (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
         fetch()
         |> Domain.enqueue
-            (pullRequest (create id) (create "00001234") [ commitStatus "circleci" CommitStatusState.Success ])
+            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234") [ CommitStatus.create "circleci" CommitStatusState.Success ])
 
     store state
 
@@ -87,7 +85,7 @@ let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
         fetch()
         |> Domain.enqueue
-            (pullRequest (create id) (create "00001234") [ commitStatus "circleci" CommitStatusState.Pending ])
+            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234") [ CommitStatus.create "circleci" CommitStatusState.Pending ])
 
     store state
 
@@ -105,7 +103,7 @@ let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
 
 let dequeue (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
-        fetch() |> Domain.dequeue (create id)
+        fetch() |> Domain.dequeue (PullRequestID.create id)
 
     store state
 
@@ -140,7 +138,7 @@ let start (fetch: GetState) (store: UpdateState) _request: WebPart =
 
 let finish (fetch: GetState) (store: UpdateState) _request: WebPart =
     let result, state =
-        fetch() |> Domain.ingestBuildUpdate (BuildMessage.Success(create "12345678"))
+        fetch() |> Domain.ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
 
     let response =
         match result with
