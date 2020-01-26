@@ -72,6 +72,11 @@ module AttemptQueue =
     let prepend (Batch batch) (AttemptQueue queue): AttemptQueue =
         batch @ queue |> AttemptQueue
 
+    let contains (id: PullRequestID) (AttemptQueue queue): bool =
+        queue
+        |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
+        |> List.contains id
+
     let tryFind predicate (AttemptQueue queue) =
         queue |> List.tryFind predicate
 
@@ -87,11 +92,16 @@ module SinBin =
     let empty: SinBin =
         SinBin []
 
+    let append (item: NaughtyPullRequest) (SinBin sinBin): SinBin =
+        sinBin @ [ item ] |> SinBin
+
     let tryFind predicate (SinBin sinBin) =
         sinBin |> List.tryFind predicate
 
-    let append (item: NaughtyPullRequest) (SinBin sinBin): SinBin =
-        sinBin @ [ item ] |> SinBin
+    let contains (id: PullRequestID) (SinBin sinBin): bool =
+        sinBin
+        |> List.map (fun (NaughtyPullRequest pr) -> pr.id)
+        |> List.contains id
 
     let toPullRequests (SinBin sinBin): List<PullRequest> =
         sinBin |> List.map (fun (NaughtyPullRequest pr) -> pr)
@@ -101,7 +111,7 @@ module SinBin =
         |> List.filter (fun (NaughtyPullRequest pr) -> pr.id <> id)
         |> SinBin
 
-module CurrentBatch =
+module ActiveBatch =
     let toPullRequests (batch: ActiveBatch): Option<List<PullRequest>> =
         match batch with
         | NoBatch ->
@@ -120,46 +130,17 @@ module CurrentBatch =
         |> toPullRequests
         |> Option.map (List.map (fun pr -> pr.id))
 
+    let contains (id: PullRequestID) (batch: ActiveBatch): bool =
+        batch
+        |> toPullRequestIds
+        |> Option.map (List.contains id)
+        |> Option.defaultValue false
+
 module MergeQueue =
     let empty: MergeQueue =
         { queue = AttemptQueue.empty
           sinBin = SinBin.empty
           activeBatch = NoBatch }
-
-// Helpers
-let private inQueue (id: PullRequestID) (AttemptQueue queue): bool =
-    queue
-    |> List.map fst
-    |> List.map (fun (PassingPullRequest pr) -> pr.id)
-    |> List.contains id
-
-let private inSinBin (id: PullRequestID) (SinBin sinBin): bool =
-    sinBin
-    |> List.map (fun (NaughtyPullRequest pr) -> pr.id)
-    |> List.contains id
-
-let private inBatch (id: PullRequestID) (Batch batch): bool =
-    batch
-    |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
-    |> List.contains id
-
-let private inRunningBatch (id: PullRequestID) (batch: ActiveBatch): bool =
-    match batch with
-    | Running batch ->
-        batch |> RunnableBatch.contains id
-    | Merging _ ->
-        false
-    | NoBatch ->
-        false
-
-let private inCurrentBatch (id: PullRequestID) (batch: ActiveBatch): bool =
-    match batch with
-    | Running batch ->
-        batch |> RunnableBatch.contains id
-    | Merging batch ->
-        batch |> MergeableBatch.contains id
-    | NoBatch ->
-        false
 
 // Domain Logic
 
@@ -321,7 +302,7 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
 
     let current =
         model.activeBatch
-        |> CurrentBatch.toPullRequestIds
+        |> ActiveBatch.toPullRequestIds
         |> Option.map (fun prs -> [ PlannedBatch prs ])
         |> Option.defaultValue []
 
@@ -341,8 +322,9 @@ type EnqueueResult =
 let enqueue (pullRequest: PullRequest) (model: MergeQueue): EnqueueResult * MergeQueue =
     let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
     // TODO: Concept here, "locate pull request", multiple occurences
-    let alreadyEnqueued = model.queue |> inQueue pullRequest.id
-    let alreadySinBinned = model.sinBin |> inSinBin pullRequest.id
+    // TODO: Currently not checking to see if the pull request is currently running!
+    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
+    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
     let prepared = prepareForQueue pullRequest
 
     match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
@@ -364,9 +346,9 @@ type DequeueResult =
 
 let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue =
     // TODO: Concept here, "locate pull request", multiple occurences
-    let isCurrent = model.activeBatch |> inCurrentBatch id
-    let isEnqueued = model.queue |> inQueue id
-    let isSinBinned = model.sinBin |> inSinBin id
+    let isCurrent = model.activeBatch |> ActiveBatch.contains id
+    let isEnqueued = model.queue |> AttemptQueue.contains id
+    let isSinBinned = model.sinBin |> SinBin.contains id
 
     let result, newModel =
         match isCurrent, isEnqueued, isSinBinned with
