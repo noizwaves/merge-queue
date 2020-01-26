@@ -67,7 +67,7 @@ let enqueue (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
         fetch()
         |> Domain.enqueue
-            (pullRequest (pullRequestId id) (sha "00001234") [ commitStatus "circleci" CommitStatusState.Success ])
+            (pullRequest (create id) (create "00001234") [ commitStatus "circleci" CommitStatusState.Success ])
 
     store state
 
@@ -87,7 +87,7 @@ let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
         fetch()
         |> Domain.enqueue
-            (pullRequest (pullRequestId id) (sha "00001234") [ commitStatus "circleci" CommitStatusState.Pending ])
+            (pullRequest (create id) (create "00001234") [ commitStatus "circleci" CommitStatusState.Pending ])
 
     store state
 
@@ -105,7 +105,7 @@ let fireAndForget (fetch: GetState) (store: UpdateState) id: WebPart =
 
 let dequeue (fetch: GetState) (store: UpdateState) id: WebPart =
     let result, state =
-        fetch() |> Domain.dequeue (pullRequestId id)
+        fetch() |> Domain.dequeue (create id)
 
     store state
 
@@ -140,7 +140,7 @@ let start (fetch: GetState) (store: UpdateState) _request: WebPart =
 
 let finish (fetch: GetState) (store: UpdateState) _request: WebPart =
     let result, state =
-        fetch() |> Domain.ingestBuildUpdate (BuildMessage.Success(sha "12345678"))
+        fetch() |> Domain.ingestBuildUpdate (BuildMessage.Success(create "12345678"))
 
     let response =
         match result with

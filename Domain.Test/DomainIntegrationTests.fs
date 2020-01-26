@@ -5,25 +5,25 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
 
-let private passedCircleCI = commitStatus "circleci" CommitStatusState.Success
-let private pendingCircleCI = commitStatus "circleci" CommitStatusState.Pending
-let private failedCircleCI = commitStatus "circleci" CommitStatusState.Failure
+let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
+let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
+let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
-let private one = pullRequest (pullRequestId 1111) (sha "00001111") [ passedCircleCI ]
-let private two = pullRequest (pullRequestId 2222) (sha "00002222") [ passedCircleCI ]
-let private three = pullRequest (pullRequestId 3333) (sha "00003333") [ passedCircleCI ]
-let private four = pullRequest (pullRequestId 4444) (sha "00004444") [ passedCircleCI ]
-let private five = pullRequest (pullRequestId 5555) (sha "00005555") [ pendingCircleCI ]
-let private six = pullRequest (pullRequestId 6666) (sha "00006666") [ passedCircleCI ]
-let private seven = pullRequest (pullRequestId 7777) (sha "00007777") [ passedCircleCI ]
-let private eight = pullRequest (pullRequestId 8888) (sha "00008888") [ passedCircleCI ]
+let private one = PullRequest.pullRequest (PullRequestID.create 1111) (SHA.create "00001111") [ passedCircleCI ]
+let private two = PullRequest.pullRequest (PullRequestID.create 2222) (SHA.create "00002222") [ passedCircleCI ]
+let private three = PullRequest.pullRequest (PullRequestID.create 3333) (SHA.create "00003333") [ passedCircleCI ]
+let private four = PullRequest.pullRequest (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
+let private five = PullRequest.pullRequest (PullRequestID.create 5555) (SHA.create "00005555") [ pendingCircleCI ]
+let private six = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "00006666") [ passedCircleCI ]
+let private seven = PullRequest.pullRequest (PullRequestID.create 7777) (SHA.create "00007777") [ passedCircleCI ]
+let private eight = PullRequest.pullRequest (PullRequestID.create 8888) (SHA.create "00008888") [ passedCircleCI ]
 
 
 [<Fact>]
 let ``Realistic workflow``() =
     // 1. Four enqueued but not started
     let ``Four enqueued but not started`` =
-        emptyMergeQueue
+        MergeQueue.emptyMergeQueue
         |> enqueue one
         |> snd
         |> enqueue two
@@ -80,14 +80,14 @@ let ``Realistic workflow``() =
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
     let ``Five fails to build, Six's branch is updated, batch continues to build`` =
         ``First batch running some additional enqueued``
-        |> updateStatuses (pullRequestId 5555) (sha "00005555") [ failedCircleCI ]
-        |> updatePullRequestSha (pullRequestId 6666) (sha "60606060")
+        |> updateStatuses (PullRequestID.create 5555) (SHA.create "00005555") [ failedCircleCI ]
+        |> updatePullRequestSha (PullRequestID.create 6666) (SHA.create "60606060")
         |> snd
         |> enqueue seven
         |> snd
 
-    let six_v2 = pullRequest (pullRequestId 6666) (sha "60606060") [ passedCircleCI ]
-    let five_v2 = pullRequest (pullRequestId 5555) (sha "00005555") [ failedCircleCI ]
+    let six_v2 = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
+    let five_v2 = PullRequest.pullRequest (PullRequestID.create 5555) (SHA.create "00005555") [ failedCircleCI ]
 
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> peekCurrentQueue
@@ -110,14 +110,14 @@ let ``Realistic workflow``() =
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` =
         ``Five fails to build, Six's branch is updated, batch continues to build``
-        |> updatePullRequestSha (pullRequestId 5555) (sha "50505050")
+        |> updatePullRequestSha (PullRequestID.create 5555) (SHA.create "50505050")
         |> snd
         |> ingestBuildUpdate BuildMessage.Failure
         |> snd
-        |> updateStatuses (pullRequestId 6666) (sha "60606060") [ passedCircleCI ]
+        |> updateStatuses (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
 
-    let six_v3 = pullRequest (pullRequestId 6666) (sha "60606060") [ passedCircleCI ]
-    let five_v3 = pullRequest (pullRequestId 5555) (sha "50505050") [ failedCircleCI ]
+    let six_v3 = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
+    let five_v3 = PullRequest.pullRequest (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
 
     ``Five's branch is updated, Batch fails to build, Six's build passes``
     |> peekCurrentQueue
@@ -145,9 +145,9 @@ let ``Realistic workflow``() =
         |> snd
         |> enqueue eight
         |> snd
-        |> updateStatuses (pullRequestId 5555) (sha "50505050") [ failedCircleCI ]
+        |> updateStatuses (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
 
-    let five_v4 = pullRequest (pullRequestId 5555) (sha "50505050") [ failedCircleCI ]
+    let five_v4 = PullRequest.pullRequest (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
 
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> peekCurrentQueue
@@ -171,11 +171,11 @@ let ``Realistic workflow``() =
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` =
         ``Start another batch, Eight is enqueued, Five's build fails again``
-        |> dequeue (pullRequestId 5555)
+        |> dequeue (PullRequestID.create 5555)
         |> snd
-        |> dequeue (pullRequestId 3333)
+        |> dequeue (PullRequestID.create 3333)
         |> snd
-        |> ingestBuildUpdate (BuildMessage.Success(sha "12000000"))
+        |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12000000"))
         |> snd
         |> ingestMergeUpdate MergeMessage.Success
         |> snd
@@ -227,10 +227,10 @@ let ``Realistic workflow``() =
         ``Start a batch and it fails``
         |> startBatch
         |> snd
-        |> updatePullRequestSha (pullRequestId 6666) (sha "66006600")
+        |> updatePullRequestSha (PullRequestID.create 6666) (SHA.create "66006600")
         |> snd
 
-    let six_v4 = pullRequest (pullRequestId 6666) (sha "66006600") [ passedCircleCI ]
+    let six_v4 = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]
 
     ``Start another batch, Six's branch is updated during the build causing an abort``
     |> peekCurrentQueue
@@ -251,12 +251,12 @@ let ``Realistic workflow``() =
     // 9. Six's build starts then passes, start a batch
     let ``Six's build starts then passes, start a batch`` =
         ``Start another batch, Six's branch is updated during the build causing an abort``
-        |> updateStatuses (pullRequestId 6666) (sha "66006600") [ pendingCircleCI ]
-        |> updateStatuses (pullRequestId 6666) (sha "66006600") [ passedCircleCI ]
+        |> updateStatuses (PullRequestID.create 6666) (SHA.create "66006600") [ pendingCircleCI ]
+        |> updateStatuses (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]
         |> startBatch
         |> snd
 
-    let six_v5 = pullRequest (pullRequestId 6666) (sha "66006600") [ passedCircleCI ]
+    let six_v5 = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]
 
     ``Six's build starts then passes, start a batch``
     |> peekCurrentQueue
@@ -277,9 +277,9 @@ let ``Realistic workflow``() =
     // 10. Batch builds and merges successfully
     let ``Batch builds and merges successfully`` =
         ``Six's build starts then passes, start a batch``
-        |> ingestBuildUpdate (BuildMessage.Success(sha "76800000"))
+        |> ingestBuildUpdate (BuildMessage.Success(SHA.create "76800000"))
         |> snd
         |> ingestMergeUpdate MergeMessage.Success
         |> snd
 
-    ``Batch builds and merges successfully`` |> should equal emptyMergeQueue
+    ``Batch builds and merges successfully`` |> should equal MergeQueue.emptyMergeQueue

@@ -38,11 +38,11 @@ module DomainTypes =
 
     type NaughtyPullRequest = NaughtyPullRequest of PullRequest
 
-    type SinBin = List<NaughtyPullRequest>
+    type SinBin = SinBin of List<NaughtyPullRequest>
 
     // TODO: Split concept of BuildableBatch and Batch
     // SMELL: Currently, Batch = AttemptQueue
-    type Batch = List<PassingPullRequest * BisectPath>
+    type Batch = Batch of List<PassingPullRequest * BisectPath>
 
     type CurrentBatch =
         | NoBatch
