@@ -215,7 +215,8 @@ let completeMerge (existing: AttemptQueue) (batch: MergeableBatch): AttemptQueue
 let failMerge (existing: AttemptQueue) (MergeableBatch batch): AttemptQueue * ActiveBatch =
     AttemptQueue.prepend batch existing, NoBatch
 
-let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
+// SMELL: these were private before command split, are they real domain methods?
+let updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
     // get PR (and update SHA)
     let updatedPr =
         queue
@@ -239,7 +240,8 @@ let private updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: Attempt
 
     newQueue, newSinBin
 
-let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (SinBin sinBin): SinBin =
+// SMELL: these were private before command split, are they real domain methods?
+let updateShaInSinBin (id: PullRequestID) (newValue: SHA) (SinBin sinBin): SinBin =
     // TODO: a sha update should always clear the commit statuses
     sinBin
     |> List.map (fun (NaughtyPullRequest pr) ->
@@ -248,7 +250,8 @@ let private updateShaInSinBin (id: PullRequestID) (newValue: SHA) (SinBin sinBin
     |> SinBin
 
 // SMELL: these signatures are huge! Why?
-let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (RunnableBatch batch) (queue: AttemptQueue)
+// SMELL: these were private before command split, are they real domain methods?
+let updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (RunnableBatch batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
     let inRunningBatch = batch |> Batch.contains id
 
@@ -269,7 +272,8 @@ let private updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (Runnabl
 
 
 // SMELL: these signatures are huge! Why?
-let private updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
+// SMELL: these were private before command split, are they real domain methods?
+let updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
     (sinBin: SinBin): AttemptQueue * SinBin =
     // check to see if we should pull the matching commit out of the "sin bin"
     let matching =
@@ -319,264 +323,6 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
     | Some b -> b :: fromQueue
     | None -> fromQueue
 
-
-// Commands
-type EnqueueResult =
-    | Enqueued
-    | SinBinned
-    | RejectedFailingBuildStatus
-    | AlreadyEnqueued
-
-let enqueue (pullRequest: PullRequest) (model: MergeQueue): EnqueueResult * MergeQueue =
-    let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
-    // TODO: Concept here, "locate pull request", multiple occurences
-    // TODO: Currently not checking to see if the pull request is currently running!
-    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
-    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
-    let prepared = prepareForQueue pullRequest
-
-    match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
-    | true, _, _, _ -> RejectedFailingBuildStatus, model
-    | _, true, _, _ -> AlreadyEnqueued, model
-    | _, _, true, _ -> AlreadyEnqueued, model
-    | false, false, false, Choice2Of2 naughty ->
-        let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-        SinBinned, newModel
-    | false, false, false, Choice1Of2 passing ->
-        let newModel = { model with queue = AttemptQueue.append passing model.queue }
-        Enqueued, newModel
-
-type DequeueResult =
-    | Dequeued
-    | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
-    | RejectedInMergingBatch
-    | NotFound
-
-let dequeue (id: PullRequestID) (model: MergeQueue): DequeueResult * MergeQueue =
-    // TODO: Concept here, "locate pull request", multiple occurences
-    let isCurrent = model.activeBatch |> ActiveBatch.contains id
-    let isEnqueued = model.queue |> AttemptQueue.contains id
-    let isSinBinned = model.sinBin |> SinBin.contains id
-
-    let result, newModel =
-        match isCurrent, isEnqueued, isSinBinned with
-        | true, _, _ ->
-            match model.activeBatch with
-            | Running(RunnableBatch batch) ->
-                let newQueue =
-                    model.queue
-                    |> AttemptQueue.prepend batch
-                    |> AttemptQueue.removeById id
-
-                let newBatch = NoBatch
-
-                let pullRequests = batch |> Batch.toPullRequests
-                let result = DequeuedAndAbortRunningBatch(pullRequests, id)
-
-                let newModel =
-                    { model with
-                          queue = newQueue
-                          activeBatch = newBatch }
-                result, newModel
-
-            | Merging _ ->
-                RejectedInMergingBatch, model
-
-            | NoBatch ->
-                // SMELL: this is an impossible branch to get into...
-                failwith "PullRequest cannot be in an empty batch"
-
-        | _, true, _ ->
-            let newQueue = model.queue |> AttemptQueue.removeById id
-            Dequeued, { model with queue = newQueue }
-
-        | _, _, true ->
-            let newSinBin = model.sinBin |> SinBin.removeById id
-            Dequeued, { model with sinBin = newSinBin }
-
-        | false, false, false ->
-            NotFound, model
-
-    result, newModel
-
-type StartBatchResult =
-    | PerformBatchBuild of List<PullRequest>
-    | AlreadyRunning
-    | EmptyQueue
-
-// SMELL: what calls this? synchronous after some other call?
-// maybe make start batch private, and call it inside enqueue && updateStatus?
-let startBatch (model: MergeQueue): StartBatchResult * MergeQueue =
-    match model.activeBatch, model.queue with
-    | Running _, _ -> AlreadyRunning, model
-    | Merging _, _ -> AlreadyRunning, model
-    | NoBatch, AttemptQueue [] -> EmptyQueue, model
-    | NoBatch, queue ->
-        match pickNextBatch queue with
-        | Some(batch, remaining) ->
-            let pullRequests = batch |> RunnableBatch.toPullRequests
-            PerformBatchBuild pullRequests,
-            { model with
-                  activeBatch = Running batch
-                  queue = remaining }
-        | None ->
-            // SMELL: impossible code path, all non-empty queues have a next batch...
-            // SMELL: how could execution get here and result is empty?
-            EmptyQueue, model
-
-type BuildMessage =
-    | Success of SHA
-    | Failure
-
-type IngestBuildResult =
-    | NoOp
-    | PerformBatchMerge of List<PullRequest> * SHA
-    | ReportBuildFailureWithRetry of List<PullRequest>
-    | ReportBuildFailureNoRetry of List<PullRequest>
-
-let ingestBuildUpdate (message: BuildMessage) (model: MergeQueue): IngestBuildResult * MergeQueue =
-    match model.activeBatch, message with
-    | Running failed, Failure ->
-        match bisect failed with
-        | None ->
-            let queue, nextActive = failWithoutRetry model.queue failed
-
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = nextActive }
-
-            let prs = failed |> RunnableBatch.toPullRequests
-            ReportBuildFailureNoRetry prs, newModel
-
-        | Some(first, second) ->
-            let queue, nextActive = failWithRetry model.queue first second
-
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = nextActive }
-
-            let prs = failed |> RunnableBatch.toPullRequests
-            ReportBuildFailureWithRetry prs, newModel
-
-    | Running succeeded, Success targetHead ->
-        let nextActive = completeBuild succeeded
-        let newModel = { model with activeBatch = nextActive }
-        let pullRequests = succeeded |> RunnableBatch.toPullRequests
-        let result = PerformBatchMerge(pullRequests, targetHead)
-        result, newModel
-
-    | NoBatch, Failure ->
-        NoOp, model
-    | Merging _, Failure ->
-        NoOp, model
-    | NoBatch, Success _ ->
-        NoOp, model
-    | Merging _, Success _ ->
-        NoOp, model
-
-type MergeMessage =
-    | Success
-    | Failure
-
-type IngestMergeResult =
-    | NoOp
-    | MergeComplete of List<PullRequest>
-    | ReportMergeFailure of List<PullRequest>
-
-let ingestMergeUpdate (message: MergeMessage) (model: MergeQueue): IngestMergeResult * MergeQueue =
-    match model.activeBatch, message with
-    | Merging merged, MergeMessage.Success ->
-        let queue, batch = merged |> completeMerge model.queue
-
-        let newModel =
-            { model with
-                  queue = queue
-                  activeBatch = batch }
-
-        let pullRequests = merged |> MergeableBatch.toPullRequests
-
-        MergeComplete pullRequests, newModel
-    | Merging unmerged, MergeMessage.Failure ->
-        let queue, batch = unmerged |> failMerge model.queue
-        let pullRequests = unmerged |> MergeableBatch.toPullRequests
-
-        let newModel =
-            { model with
-                  queue = queue
-                  activeBatch = batch }
-        ReportMergeFailure pullRequests, newModel
-    | _, _ ->
-        IngestMergeResult.NoOp, model
-
-type UpdatePullRequestResult =
-    | NoOp
-    | AbortRunningBatch of List<PullRequest> * PullRequestID
-    | AbortMergingBatch of List<PullRequest> * PullRequestID
-
-let updatePullRequestSha (id: PullRequestID) (newValue: SHA) (model: MergeQueue): UpdatePullRequestResult * MergeQueue =
-    let newSinBin = model.sinBin |> updateShaInSinBin id newValue
-    let modelWithNewSinBin = { model with sinBin = newSinBin }
-
-    match modelWithNewSinBin.activeBatch with
-    | Running batch ->
-        let abortRunningBatch, newQueue, newSinBin =
-            updateShaInRunningBatch id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-        if abortRunningBatch then
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      activeBatch = NoBatch
-                      sinBin = newSinBin }
-
-            let pullRequests = batch |> RunnableBatch.toPullRequests
-            AbortRunningBatch(pullRequests, id), newModel
-
-        else
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      sinBin = newSinBin }
-            NoOp, newModel
-    | NoBatch ->
-        let newQueue, newSinBin =
-            updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-        let newModel =
-            { modelWithNewSinBin with
-                  queue = newQueue
-                  sinBin = newSinBin }
-        NoOp, newModel
-
-    | Merging batch ->
-        let inMergingBatch = batch |> MergeableBatch.contains id
-
-        if inMergingBatch then
-            let newModel =
-                { modelWithNewSinBin with activeBatch = NoBatch }
-
-            let pullRequests = batch |> MergeableBatch.toPullRequests
-            AbortMergingBatch(pullRequests, id), newModel
-        else
-            let newQueue, newSinBin =
-                updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      sinBin = newSinBin }
-            NoOp, newModel
-
-let updateStatuses (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (model: MergeQueue): MergeQueue =
-    // check to see if we should pull the matching commit out of the "sin bin"
-    let newQueue, newSinBin =
-        updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
-
-    { model with
-          queue = newQueue
-          sinBin = newSinBin }
 
 // "Properties"
 

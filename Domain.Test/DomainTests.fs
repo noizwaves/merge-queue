@@ -4,6 +4,8 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
+open MergeQueue.DbTypes
+open MergeQueue.Commands
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -15,21 +17,30 @@ let private two = PullRequest.pullRequest (PullRequestID.create 22) (SHA.create 
 let private three = PullRequest.pullRequest (PullRequestID.create 333) (SHA.create "00003333") [ passedCircleCI ]
 let private four = PullRequest.pullRequest (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
 
+let private applyCommands<'a> (func: Load -> Save -> 'a) (initial: MergeQueue): 'a * MergeQueue =
+    // SMELL: collect all updates
+    let mutable state = initial
+    let update v = state <- v
+    let fetch() = state
+
+    func fetch update, state
+
+// SMELL: using commands to construct domain objects for testing domain logic
 let private idleWithTwoPullRequests: MergeQueue =
     MergeQueue.empty
-    |> enqueue one
-    |> snd
-    |> enqueue two
+    |> applyCommands (fun load save ->
+        enqueue load save one |> ignore
+        enqueue load save two)
     |> snd
 
 let private runningBatchOfTwo: MergeQueue =
     idleWithTwoPullRequests
-    |> startBatch
+    |> applyCommands (fun load save -> startBatch load save ())
     |> snd
 
 let private mergingBatchOfTwo: MergeQueue =
     runningBatchOfTwo
-    |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+    |> applyCommands (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
     |> snd
 
 [<Fact>]
@@ -55,7 +66,7 @@ let ``Empty queue``() =
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let (result, state) =
-        MergeQueue.empty |> enqueue one
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save one)
 
     result |> should equal EnqueueResult.Enqueued
 
@@ -76,7 +87,7 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
     let failingPr =
         PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; failedCircleCI ]
     let (result, state) =
-        MergeQueue.empty |> enqueue failingPr
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingPr)
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
@@ -87,7 +98,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
     let runningPr =
         PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ]
     let (result, state) =
-        MergeQueue.empty |> enqueue runningPr
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save runningPr)
 
     result |> should equal EnqueueResult.SinBinned
 
@@ -103,7 +114,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let failingPr = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") []
     let (result, state) =
-        MergeQueue.empty |> enqueue failingPr
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingPr)
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
@@ -113,12 +124,12 @@ let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
 let ``Enqueue an already enqueued Pull Request``() =
     let singlePrQueueState =
         MergeQueue.empty
-        |> enqueue one
+        |> applyCommands (fun load save -> enqueue load save one)
         |> snd
 
+    let duplicatePr = (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
     let (result, state) =
-        singlePrQueueState
-        |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
+        singlePrQueueState |> applyCommands (fun load save -> enqueue load save duplicatePr)
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -134,14 +145,17 @@ let ``Enqueue an already enqueued Pull Request``() =
 let ``Enqueue a sin binned Pull Request``() =
     let singlePrInSinBin =
         MergeQueue.empty
-        |> enqueue one
-        |> snd
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        |> applyCommands (fun load save ->
+            enqueue load save one |> ignore
+            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010") |> ignore)
         |> snd
 
     let result, state =
         singlePrInSinBin
-        |> enqueue (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
+        |> applyCommands
+            (fun load save ->
+            enqueue load save
+                (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ]))
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -152,12 +166,11 @@ let ``Enqueue multiple Pull Requests``() =
     let first = one
     let second = two
 
-
     let firstResult, firstState =
-        MergeQueue.empty |> enqueue first
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save first)
 
     let secondResult, secondState =
-        firstState |> enqueue second
+        firstState |> applyCommands (fun load save -> enqueue load save second)
 
 
     firstResult |> should equal EnqueueResult.Enqueued
@@ -176,7 +189,7 @@ let ``Enqueue multiple Pull Requests``() =
 [<Fact>]
 let ``Dequeue an enqueued Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> dequeue (PullRequestID.create 1)
+        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
 
     result |> should equal (DequeueResult.Dequeued)
 
@@ -192,11 +205,13 @@ let ``Dequeue an enqueued Pull Request``() =
 let ``Dequeue a sin binned Pull Request``() =
     let idleWithOneEnqueuedOneSinBinned =
         idleWithTwoPullRequests
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
         |> snd
 
     let result, state =
-        idleWithOneEnqueuedOneSinBinned |> dequeue (PullRequestID.create 1)
+        idleWithOneEnqueuedOneSinBinned
+        |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
 
     result |> should equal (DequeueResult.Dequeued)
 
@@ -211,7 +226,7 @@ let ``Dequeue a sin binned Pull Request``() =
 [<Fact>]
 let ``Dequeue an unknown Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> dequeue (PullRequestID.create 404)
+        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 404))
 
     result |> should equal (DequeueResult.NotFound)
 
@@ -226,7 +241,7 @@ let ``Dequeue an unknown Pull Request``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
-        runningBatchOfTwo |> dequeue (PullRequestID.create 1)
+        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
 
     result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (PullRequestID.create 1)))
 
@@ -246,9 +261,9 @@ let ``Dequeue a Pull Request that is in a running batch``() =
 let ``Dequeue a Pull Request that is waiting behind a running batch``() =
     let result, state =
         runningBatchOfTwo
-        |> enqueue three
-        |> snd
-        |> dequeue (PullRequestID.create 333)
+        |> applyCommands (fun load save ->
+            enqueue load save three |> ignore
+            dequeue load save (PullRequestID.create 333))
 
     result |> should equal DequeueResult.Dequeued
 
@@ -267,7 +282,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
-        mergingBatchOfTwo |> dequeue (PullRequestID.create 1)
+        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
 
     result |> should equal DequeueResult.RejectedInMergingBatch
 
@@ -277,9 +292,9 @@ let ``Dequeue a Pull Request that is in a merging batch``() =
 let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
     let result, state =
         mergingBatchOfTwo
-        |> enqueue three
-        |> snd
-        |> dequeue (PullRequestID.create 333)
+        |> applyCommands (fun load save ->
+            enqueue load save three |> ignore
+            dequeue load save (PullRequestID.create 333))
 
     result |> should equal DequeueResult.Dequeued
 
@@ -300,7 +315,7 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
 [<Fact>]
 let ``Start a batch``() =
     let (result, state) =
-        idleWithTwoPullRequests |> startBatch
+        idleWithTwoPullRequests |> applyCommands (fun load save -> startBatch load save ())
 
     result |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
 
@@ -319,10 +334,10 @@ let ``Start a batch``() =
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
     let (_, runningBatch) =
-        idleWithTwoPullRequests |> startBatch
+        idleWithTwoPullRequests |> applyCommands (fun load save -> startBatch load save ())
 
     let (result, state) =
-        runningBatch |> startBatch
+        runningBatch |> applyCommands (fun load save -> startBatch load save ())
 
     result |> should equal StartBatchResult.AlreadyRunning
 
@@ -339,7 +354,7 @@ let ``Attempt to start a second concurrent batch during merging``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> startBatch
+        mergingQueue |> applyCommands (fun load save -> startBatch load save ())
 
     result |> should equal AlreadyRunning
 
@@ -351,7 +366,7 @@ let ``Attempt to start a batch on an empty queue``() =
         MergeQueue.empty
 
     let (result, state) =
-        queue |> startBatch
+        queue |> applyCommands (fun load save -> startBatch load save ())
 
     result |> should equal StartBatchResult.EmptyQueue
 
@@ -364,7 +379,9 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+        runningQueue
+        |> applyCommands
+            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
 
     result |> should equal (IngestBuildResult.PerformBatchMerge([ one; two ], (SHA.create "12345678")))
 
@@ -381,7 +398,7 @@ let ``Recieve message that batch failed the build when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> ingestBuildUpdate BuildMessage.Failure
+        runningQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
 
     result |> should equal (IngestBuildResult.ReportBuildFailureWithRetry [ one; two ])
 
@@ -401,13 +418,13 @@ let ``Recieve message that batch failed the build when batch is running``() =
 let ``Single PR batches that fail to build are dequeued``() =
     let runningBatchOfOne =
         MergeQueue.empty
-        |> enqueue one
-        |> snd
-        |> startBatch
+        |> applyCommands (fun load save ->
+            enqueue load save one |> ignore
+            startBatch load save ())
         |> snd
 
     let result, state =
-        runningBatchOfOne |> ingestBuildUpdate BuildMessage.Failure
+        runningBatchOfOne |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
 
     result |> should equal (IngestBuildResult.ReportBuildFailureNoRetry [ one ])
 
@@ -428,7 +445,7 @@ let ``Recieve message that build failed when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> ingestBuildUpdate BuildMessage.Failure
+        idleQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -439,7 +456,9 @@ let ``Recieve message that build succeeded when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+        idleQueue
+        |> applyCommands
+            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -450,7 +469,7 @@ let ``Recieve message that build failed when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingQueue |> ingestBuildUpdate BuildMessage.Failure
+        mergingQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -461,7 +480,9 @@ let ``Recieve message that build succeeded when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingQueue |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+        mergingQueue
+        |> applyCommands
+            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -471,7 +492,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
 let ``A Pull Request enqueued during running batch is included in the next batch``() =
     let runningQueueDepthThree =
         runningBatchOfTwo
-        |> enqueue three
+        |> applyCommands (fun load save -> enqueue load save three)
         |> snd
 
     runningQueueDepthThree
@@ -482,9 +503,9 @@ let ``A Pull Request enqueued during running batch is included in the next batch
 
     let finishedQueue =
         runningQueueDepthThree
-        |> ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
-        |> snd
-        |> ingestMergeUpdate MergeMessage.Success
+        |> applyCommands (fun load save ->
+            ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")) |> ignore
+            ingestMergeUpdate load save MergeMessage.Success)
         |> snd
 
     finishedQueue
@@ -492,7 +513,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     |> should equal [ three ]
 
     let (result, _) =
-        finishedQueue |> startBatch
+        finishedQueue |> applyCommands (fun load save -> startBatch load save ())
 
     result |> should equal (StartBatchResult.PerformBatchBuild [ three ])
 
@@ -503,7 +524,7 @@ let ``Merge success message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> ingestMergeUpdate MergeMessage.Success
+        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save MergeMessage.Success)
 
     result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
 
@@ -514,7 +535,7 @@ let ``Merge failure message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> ingestMergeUpdate (MergeMessage.Failure)
+        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save (MergeMessage.Failure))
 
     state
     |> peekCurrentQueue
@@ -532,7 +553,9 @@ let ``The branch head for an enqueued PR is updated``() =
     let idle = idleWithTwoPullRequests
 
     let result, state =
-        idle |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        idle
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -550,7 +573,9 @@ let ``The branch head for a running PR is updated``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        running
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
 
     result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], PullRequestID.create 1))
 
@@ -568,7 +593,9 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
     let running = runningBatchOfTwo
 
     let result, state =
-        running |> updatePullRequestSha (PullRequestID.create 404) (SHA.create "40400404")
+        running
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 404) (SHA.create "40400404"))
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -578,11 +605,13 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
 let ``The branch head for an enqueued (but not running) PR is updated when batch is running``() =
     let runningBatchAndOnePrWaiting =
         runningBatchOfTwo
-        |> enqueue three
+        |> applyCommands (fun load save -> enqueue load save three)
         |> snd
 
     let result, state =
-        runningBatchAndOnePrWaiting |> updatePullRequestSha (PullRequestID.create 333) (SHA.create "30303030")
+        runningBatchAndOnePrWaiting
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 333) (SHA.create "30303030"))
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -599,11 +628,13 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
 let ``The branch head for an enqueued (but not batched) PR is updated when batch is merging``() =
     let mergingBatchAndOnePrWaiting =
         mergingBatchOfTwo
-        |> enqueue three
+        |> applyCommands (fun load save -> enqueue load save three)
         |> snd
 
     let result, state =
-        mergingBatchAndOnePrWaiting |> updatePullRequestSha (PullRequestID.create 333) (SHA.create "30303030")
+        mergingBatchAndOnePrWaiting
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 333) (SHA.create "30303030"))
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -620,11 +651,13 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
 let ``The branch head for a batched PR is updated when batch is merging``() =
     let mergingBatchAndOnePrWaiting =
         mergingBatchOfTwo
-        |> enqueue three
+        |> applyCommands (fun load save -> enqueue load save three)
         |> snd
 
     let result, state =
-        mergingBatchAndOnePrWaiting |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        mergingBatchAndOnePrWaiting
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
 
     let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (PullRequestID.create 1))
     result |> should equal expectedResult
@@ -647,11 +680,16 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
 let ``An updated PR with successful build status is re-enqueued at the bottom``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
         |> snd
 
     let state =
-        awaitingStatusInfo |> updateStatuses (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ]
+        awaitingStatusInfo
+        |> applyCommands
+            (fun load save ->
+            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ])
+        |> snd
 
     state
     |> peekCurrentQueue
@@ -663,11 +701,16 @@ let ``An updated PR with successful build status is re-enqueued at the bottom``(
 let ``An updated PR with failing build status is not re-enqueued``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
         |> snd
 
     let state =
-        awaitingStatusInfo |> updateStatuses (PullRequestID.create 1) (SHA.create "10101010") [ failedCircleCI ]
+        awaitingStatusInfo
+        |> applyCommands
+            (fun load save ->
+            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ failedCircleCI ])
+        |> snd
 
     state
     |> peekCurrentQueue
@@ -677,11 +720,16 @@ let ``An updated PR with failing build status is not re-enqueued``() =
 let ``Updates for a PR not in the sin bin is ignored``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
+        |> applyCommands
+            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
         |> snd
 
     let state =
-        awaitingStatusInfo |> updateStatuses (PullRequestID.create 333) (SHA.create "10101010") [ passedCircleCI ]
+        awaitingStatusInfo
+        |> applyCommands
+            (fun load save ->
+            updateStatuses load save (PullRequestID.create 333) (SHA.create "10101010") [ passedCircleCI ])
+        |> snd
 
     state |> should equal awaitingStatusInfo
 
@@ -689,13 +737,17 @@ let ``Updates for a PR not in the sin bin is ignored``() =
 let ``Old updates for a PR with many SHA updates are ignored``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "10101010")
-        |> snd
-        |> updatePullRequestSha (PullRequestID.create 1) (SHA.create "11001100")
+        |> applyCommands (fun load save ->
+            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010") |> ignore
+            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "11001100"))
         |> snd
 
     let state =
-        awaitingStatusInfo |> updateStatuses (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ]
+        awaitingStatusInfo
+        |> applyCommands
+            (fun load save ->
+            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ])
+        |> snd
 
     state
     |> peekCurrentQueue
@@ -707,13 +759,11 @@ let ``Old updates for a PR with many SHA updates are ignored``() =
 let ``Failed batches are bisected upon build failure``() =
     let failedBuildOfFour =
         idleWithTwoPullRequests
-        |> enqueue three
-        |> snd
-        |> enqueue four
-        |> snd
-        |> startBatch
-        |> snd
-        |> ingestBuildUpdate BuildMessage.Failure
+        |> applyCommands (fun load save ->
+            enqueue load save three |> ignore
+            enqueue load save four |> ignore
+            startBatch load save () |> ignore
+            ingestBuildUpdate load save BuildMessage.Failure)
         |> snd
 
     // next batch contains only `one` and `two`
@@ -724,13 +774,13 @@ let ``Failed batches are bisected upon build failure``() =
              PlannedBatch [ three.id; four.id ] ]
 
     let firstResult, firstState =
-        failedBuildOfFour |> startBatch
+        failedBuildOfFour |> applyCommands (fun load save -> startBatch load save ())
 
     firstResult |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
 
     // fail the first bisected batch
     let _, bisectedFails =
-        firstState |> ingestBuildUpdate BuildMessage.Failure
+        firstState |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
 
     // next batch contains only `one`
     bisectedFails
@@ -741,7 +791,7 @@ let ``Failed batches are bisected upon build failure``() =
              PlannedBatch [ three.id; four.id ] ]
 
     let secondResult, secondState =
-        bisectedFails |> startBatch
+        bisectedFails |> applyCommands (fun load save -> startBatch load save ())
 
     secondResult |> should equal (StartBatchResult.PerformBatchBuild [ one ])
 

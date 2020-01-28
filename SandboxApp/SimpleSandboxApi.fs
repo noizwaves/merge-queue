@@ -7,6 +7,7 @@ open Newtonsoft.Json.Serialization
 open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
+open MergeQueue.Commands
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -58,13 +59,11 @@ let view (load: Load) _request: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let enqueue (load: Load) (save: Save) id: WebPart =
-    let result, state =
-        load()
-        |> Domain.enqueue
+    let enqueue' = Commands.enqueue load save
+    let result =
+        enqueue'
             (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
                  [ CommitStatus.create "circleci" CommitStatusState.Success ])
-
-    save state
 
     let response =
         match result with
@@ -79,13 +78,11 @@ let enqueue (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let fireAndForget (load: Load) (save: Save) id: WebPart =
-    let result, state =
-        load()
-        |> Domain.enqueue
+    let enqueue' = Commands.enqueue load save
+    let result =
+        enqueue'
             (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
                  [ CommitStatus.create "circleci" CommitStatusState.Pending ])
-
-    save state
 
     let response =
         match result with
@@ -100,10 +97,8 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let dequeue (load: Load) (save: Save) id: WebPart =
-    let result, state =
-        load() |> Domain.dequeue (PullRequestID.create id)
-
-    save state
+    let dequeue' = Commands.dequeue load save
+    let result = dequeue' (PullRequestID.create id)
 
     let response =
         match result with
@@ -118,10 +113,8 @@ let dequeue (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let start (load: Load) (save: Save) _request: WebPart =
-    let result, state =
-        load() |> startBatch
-
-    save state
+    let startBatch' = startBatch load save
+    let result = startBatch'()
 
     let response =
         match result with
@@ -135,27 +128,20 @@ let start (load: Load) (save: Save) _request: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let finish (load: Load) (save: Save) _request: WebPart =
-    let result, state =
-        load() |> Domain.ingestBuildUpdate (BuildMessage.Success(SHA.create "12345678"))
+    let ingestBuildUpdate' = Commands.ingestBuildUpdate load save
+    let ingestMergeUpdate' = Commands.ingestMergeUpdate load save
+
+    let result = ingestBuildUpdate' (BuildMessage.Success(SHA.create "12345678"))
 
     let response =
         match result with
         | IngestBuildResult.NoOp -> "NoOp"
-        | PerformBatchMerge _ -> "Batch finished"
+        | PerformBatchMerge _ ->
+            // HACK: do the merge if we should it...
+            ingestMergeUpdate' (MergeMessage.Success) |> ignore
+            "Batch finished"
         | ReportBuildFailureWithRetry _ -> "Batch failed"
         | ReportBuildFailureNoRetry _ -> "Batch failed"
-
-    // HACK: do the merge if we should it...
-    match result with
-    | PerformBatchMerge _ ->
-        let mergedState =
-            state
-            |> Domain.ingestMergeUpdate (MergeMessage.Success)
-            |> snd
-
-        save mergedState
-    | _ ->
-        save state
 
     response
     |> toJson
