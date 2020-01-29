@@ -8,6 +8,14 @@ module PullRequest =
           sha = branchHead
           statuses = commitStatuses }
 
+module CommitStatusState =
+    let create (value: string): CommitStatusState =
+        match value with
+        | "Pending" -> Pending
+        | "Success" -> Success
+        | "Failure" -> Failure
+        | _ -> failwith "This failed. It can fail. It should return a Result.Error"
+
 module CommitStatus =
     let create (context: string) (state: CommitStatusState): CommitStatus =
         { context = context

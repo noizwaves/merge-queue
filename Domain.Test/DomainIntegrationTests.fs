@@ -11,13 +11,21 @@ let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.P
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
 let private one = PullRequest.pullRequest (PullRequestID.create 1111) (SHA.create "00001111") [ passedCircleCI ]
+let private oneCmd = { number= 1111; sha = "00001111"; statuses = [ "circleci", "Success" ] }
 let private two = PullRequest.pullRequest (PullRequestID.create 2222) (SHA.create "00002222") [ passedCircleCI ]
+let private twoCmd = { number= 2222; sha = "00002222"; statuses = [ "circleci", "Success" ] }
 let private three = PullRequest.pullRequest (PullRequestID.create 3333) (SHA.create "00003333") [ passedCircleCI ]
+let private threeCmd = { number= 3333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
 let private four = PullRequest.pullRequest (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
+let private fourCmd = { number= 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
 let private five = PullRequest.pullRequest (PullRequestID.create 5555) (SHA.create "00005555") [ pendingCircleCI ]
+let private fiveCmd = { number= 5555; sha = "00005555"; statuses = [ "circleci", "Pending" ] }
 let private six = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "00006666") [ passedCircleCI ]
+let private sixCmd = { number= 6666; sha = "00006666"; statuses = [ "circleci", "Success" ] }
 let private seven = PullRequest.pullRequest (PullRequestID.create 7777) (SHA.create "00007777") [ passedCircleCI ]
+let private sevenCmd = { number= 7777; sha = "00007777"; statuses = [ "circleci", "Success" ] }
 let private eight = PullRequest.pullRequest (PullRequestID.create 8888) (SHA.create "00008888") [ passedCircleCI ]
+let private eightCmd = { number= 8888; sha = "00008888"; statuses = [ "circleci", "Success" ] }
 
 
 [<Fact>]
@@ -36,10 +44,10 @@ let ``Realistic workflow``() =
     let dequeue' = dequeue fetch update
     
     // 1. Four enqueued but not started
-    enqueue' one |> ignore
-    enqueue' two |> ignore
-    enqueue' three |> ignore
-    enqueue' four |> ignore
+    enqueue' oneCmd |> ignore
+    enqueue' twoCmd |> ignore
+    enqueue' threeCmd |> ignore
+    enqueue' fourCmd |> ignore
     let ``Four enqueued but not started`` = fetch ()
 
     ``Four enqueued but not started``
@@ -60,8 +68,8 @@ let ``Realistic workflow``() =
 
     // 2. First batch running some additional enqueued
     startBatch' () |> ignore
-    enqueue' five |> ignore
-    enqueue' six |> ignore
+    enqueue' fiveCmd |> ignore
+    enqueue' sixCmd |> ignore
     let ``First batch running some additional enqueued`` = fetch ()
 
     ``First batch running some additional enqueued``
@@ -85,7 +93,7 @@ let ``Realistic workflow``() =
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
     updateStatuses' (PullRequestID.create 5555) (SHA.create "00005555") [ failedCircleCI ] |> ignore
     updatePullRequestSha' (PullRequestID.create 6666) (SHA.create "60606060") |> ignore
-    enqueue' seven |> ignore
+    enqueue' sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch ()
 
     let six_v2 = PullRequest.pullRequest (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
@@ -139,7 +147,7 @@ let ``Realistic workflow``() =
 
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     startBatch' ()  |> ignore
-    enqueue' eight  |> ignore
+    enqueue' eightCmd  |> ignore
     updateStatuses' (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]  |> ignore
     let ``Start another batch, Eight is enqueued, Five's build fails again`` = fetch()
 

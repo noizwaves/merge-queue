@@ -18,6 +18,7 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
+    1.  create consistent arguments and return types for commands
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
     1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
     1.  GOAL(?): domain functions are not unwrapping types

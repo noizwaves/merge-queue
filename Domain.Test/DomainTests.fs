@@ -13,9 +13,13 @@ let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Su
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
 let private one = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedCircleCI ]
+let private oneCmd = { number = 1; sha = "00001111"; statuses = [ "circleci", "Success" ] }
 let private two = PullRequest.pullRequest (PullRequestID.create 22) (SHA.create "00002222") [ passedCircleCI ]
+let private twoCmd = { number = 22; sha = "00002222"; statuses = [ "circleci", "Success" ] }
 let private three = PullRequest.pullRequest (PullRequestID.create 333) (SHA.create "00003333") [ passedCircleCI ]
+let private threeCmd = { number = 333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
 let private four = PullRequest.pullRequest (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
+let private fourCmd = { number = 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
 
 let private applyCommands<'a> (func: Load -> Save -> 'a) (initial: MergeQueue): 'a * MergeQueue =
     // SMELL: collect all updates
@@ -29,8 +33,8 @@ let private applyCommands<'a> (func: Load -> Save -> 'a) (initial: MergeQueue): 
 let private idleWithTwoPullRequests: MergeQueue =
     MergeQueue.empty
     |> applyCommands (fun load save ->
-        enqueue load save one |> ignore
-        enqueue load save two)
+        enqueue load save oneCmd  |> ignore
+        enqueue load save twoCmd)
     |> snd
 
 let private runningBatchOfTwo: MergeQueue =
@@ -66,7 +70,7 @@ let ``Empty queue``() =
 [<Fact>]
 let ``Enqueue a Pull Request``() =
     let (result, state) =
-        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save one)
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save oneCmd)
 
     result |> should equal EnqueueResult.Enqueued
 
@@ -84,10 +88,9 @@ let ``Enqueue a Pull Request``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request with a failing commit status is rejected``() =
-    let failingPr =
-        PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; failedCircleCI ]
+    let failingCmd = { oneCmd with statuses = [ "uberlinter", "Success"; "circleci", "Failure" ] }
     let (result, state) =
-        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingPr)
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingCmd)
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
@@ -95,10 +98,10 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
-    let runningPr =
-        PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ]
+    let runningCmd =
+        { oneCmd with statuses = [ "uberlinter", "Success"; "circleci", "Pending" ] }
     let (result, state) =
-        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save runningPr)
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save runningCmd)
 
     result |> should equal EnqueueResult.SinBinned
 
@@ -108,13 +111,13 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 
     state
     |> peekSinBin
-    |> should equal [ runningPr ]
+    |> should equal [ PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ] ]
 
 [<Fact>]
 let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
-    let failingPr = PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "00001111") []
+    let noStatusesCmd = { oneCmd with statuses = [ ] }
     let (result, state) =
-        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingPr)
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save noStatusesCmd)
 
     result |> should equal EnqueueResult.RejectedFailingBuildStatus
 
@@ -124,12 +127,12 @@ let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
 let ``Enqueue an already enqueued Pull Request``() =
     let singlePrQueueState =
         MergeQueue.empty
-        |> applyCommands (fun load save -> enqueue load save one)
+        |> applyCommands (fun load save -> enqueue load save oneCmd)
         |> snd
 
-    let duplicatePr = (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ])
+    let duplicateCmd = { oneCmd with sha = "92929292" }
     let (result, state) =
-        singlePrQueueState |> applyCommands (fun load save -> enqueue load save duplicatePr)
+        singlePrQueueState |> applyCommands (fun load save -> enqueue load save duplicateCmd)
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -146,7 +149,7 @@ let ``Enqueue a sin binned Pull Request``() =
     let singlePrInSinBin =
         MergeQueue.empty
         |> applyCommands (fun load save ->
-            enqueue load save one |> ignore
+            enqueue load save oneCmd |> ignore
             updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010") |> ignore)
         |> snd
 
@@ -154,8 +157,7 @@ let ``Enqueue a sin binned Pull Request``() =
         singlePrInSinBin
         |> applyCommands
             (fun load save ->
-            enqueue load save
-                (PullRequest.pullRequest (PullRequestID.create 1) (SHA.create "92929292") [ passedCircleCI ]))
+                enqueue load save { number = 1; sha = "92929292"; statuses = [ "circleci", "Success" ] })
 
     result |> should equal EnqueueResult.AlreadyEnqueued
 
@@ -163,15 +165,11 @@ let ``Enqueue a sin binned Pull Request``() =
 
 [<Fact>]
 let ``Enqueue multiple Pull Requests``() =
-    let first = one
-    let second = two
-
     let firstResult, firstState =
-        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save first)
+        MergeQueue.empty |> applyCommands (fun load save -> enqueue load save oneCmd)
 
     let secondResult, secondState =
-        firstState |> applyCommands (fun load save -> enqueue load save second)
-
+        firstState |> applyCommands (fun load save -> enqueue load save twoCmd)
 
     firstResult |> should equal EnqueueResult.Enqueued
 
@@ -262,7 +260,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
     let result, state =
         runningBatchOfTwo
         |> applyCommands (fun load save ->
-            enqueue load save three |> ignore
+            enqueue load save threeCmd |> ignore
             dequeue load save (PullRequestID.create 333))
 
     result |> should equal DequeueResult.Dequeued
@@ -293,7 +291,7 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
     let result, state =
         mergingBatchOfTwo
         |> applyCommands (fun load save ->
-            enqueue load save three |> ignore
+            enqueue load save threeCmd |> ignore
             dequeue load save (PullRequestID.create 333))
 
     result |> should equal DequeueResult.Dequeued
@@ -419,7 +417,7 @@ let ``Single PR batches that fail to build are dequeued``() =
     let runningBatchOfOne =
         MergeQueue.empty
         |> applyCommands (fun load save ->
-            enqueue load save one |> ignore
+            enqueue load save oneCmd |> ignore
             startBatch load save ())
         |> snd
 
@@ -492,7 +490,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
 let ``A Pull Request enqueued during running batch is included in the next batch``() =
     let runningQueueDepthThree =
         runningBatchOfTwo
-        |> applyCommands (fun load save -> enqueue load save three)
+        |> applyCommands (fun load save -> enqueue load save threeCmd)
         |> snd
 
     runningQueueDepthThree
@@ -605,7 +603,7 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
 let ``The branch head for an enqueued (but not running) PR is updated when batch is running``() =
     let runningBatchAndOnePrWaiting =
         runningBatchOfTwo
-        |> applyCommands (fun load save -> enqueue load save three)
+        |> applyCommands (fun load save -> enqueue load save threeCmd)
         |> snd
 
     let result, state =
@@ -628,7 +626,7 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
 let ``The branch head for an enqueued (but not batched) PR is updated when batch is merging``() =
     let mergingBatchAndOnePrWaiting =
         mergingBatchOfTwo
-        |> applyCommands (fun load save -> enqueue load save three)
+        |> applyCommands (fun load save -> enqueue load save threeCmd)
         |> snd
 
     let result, state =
@@ -651,7 +649,7 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
 let ``The branch head for a batched PR is updated when batch is merging``() =
     let mergingBatchAndOnePrWaiting =
         mergingBatchOfTwo
-        |> applyCommands (fun load save -> enqueue load save three)
+        |> applyCommands (fun load save -> enqueue load save threeCmd)
         |> snd
 
     let result, state =
@@ -760,8 +758,8 @@ let ``Failed batches are bisected upon build failure``() =
     let failedBuildOfFour =
         idleWithTwoPullRequests
         |> applyCommands (fun load save ->
-            enqueue load save three |> ignore
-            enqueue load save four |> ignore
+            enqueue load save threeCmd |> ignore
+            enqueue load save fourCmd |> ignore
             startBatch load save () |> ignore
             ingestBuildUpdate load save BuildMessage.Failure)
         |> snd

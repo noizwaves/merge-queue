@@ -60,10 +60,9 @@ let view (load: Load) _request: WebPart =
 
 let enqueue (load: Load) (save: Save) id: WebPart =
     let enqueue' = Commands.enqueue load save
-    let result =
-        enqueue'
-            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
-                 [ CommitStatus.create "circleci" CommitStatusState.Success ])
+    let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Success" ] }
+
+    let result = enqueue' cmd
 
     let response =
         match result with
@@ -79,10 +78,9 @@ let enqueue (load: Load) (save: Save) id: WebPart =
 
 let fireAndForget (load: Load) (save: Save) id: WebPart =
     let enqueue' = Commands.enqueue load save
-    let result =
-        enqueue'
-            (PullRequest.pullRequest (PullRequestID.create id) (SHA.create "00001234")
-                 [ CommitStatus.create "circleci" CommitStatusState.Pending ])
+    let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Pending" ]}
+
+    let result = enqueue' cmd
 
     let response =
         match result with

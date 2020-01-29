@@ -4,15 +4,31 @@ open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 
+// SMELL: domain object should be build within command and not an argument, accept arguments
+type EnqueueCommand =
+    { number: int
+      sha: string
+      statuses: List<string * string> }
+
 type EnqueueResult =
     | Enqueued
     | SinBinned
     | RejectedFailingBuildStatus
     | AlreadyEnqueued
 
-let enqueue (load: Load) (save: Save) (pullRequest: PullRequest): EnqueueResult =
+let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
+
+    // TODO: perform validation here
+    let statuses =
+        command.statuses
+        |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
+    let pullRequest =
+        PullRequest.pullRequest (PullRequestID.create command.number) (SHA.create command.sha) statuses
+
+    // Eventually load a DTO and parse to domain object
     let model = load()
 
+    // TODO: wrap most of the code below in a new domain method called `enqueue`
     let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
     // TODO: Concept here, "locate pull request", multiple occurences
     // TODO: Currently not checking to see if the pull request is currently running!
