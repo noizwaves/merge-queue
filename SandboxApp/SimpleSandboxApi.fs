@@ -8,6 +8,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 open MergeQueue.Commands
+open MergeQueue.Commands.Enqueue
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -59,7 +60,7 @@ let view (load: Load) _request: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let enqueue (load: Load) (save: Save) id: WebPart =
-    let enqueue' = Commands.enqueue load save
+    let enqueue' = Enqueue.enqueue load save
     let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Success" ] }
 
     let result = enqueue' cmd
@@ -77,7 +78,7 @@ let enqueue (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let fireAndForget (load: Load) (save: Save) id: WebPart =
-    let enqueue' = Commands.enqueue load save
+    let enqueue' = Enqueue.enqueue load save
     let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Pending" ]}
 
     let result = enqueue' cmd

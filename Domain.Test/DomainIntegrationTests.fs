@@ -5,6 +5,7 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.Commands
+open MergeQueue.Commands.Enqueue
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending

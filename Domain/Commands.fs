@@ -4,53 +4,56 @@ open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 
-// SMELL: domain object should be build within command and not an argument, accept arguments
-type EnqueueCommand =
-    { number: int
-      sha: string
-      statuses: List<string * string> }
+module Enqueue =
+    // SMELL: the word Enqueue appears a lot here
 
-type EnqueueResult =
-    | Enqueued
-    | SinBinned
-    | RejectedFailingBuildStatus
-    | AlreadyEnqueued
+    // SMELL: domain object should be build within command and not an argument, accept arguments
+    type EnqueueCommand =
+        { number: int
+          sha: string
+          statuses: List<string * string> }
 
-let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
+    type EnqueueResult =
+        | Enqueued
+        | SinBinned
+        | RejectedFailingBuildStatus
+        | AlreadyEnqueued
 
-    // TODO: perform validation here
-    let statuses =
-        command.statuses
-        |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
-    let pullRequest =
-        PullRequest.create (PullRequestID.create command.number) (SHA.create command.sha) statuses
+    let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
 
-    // Eventually load a DTO and parse to domain object
-    let model = load()
+        // TODO: perform validation here
+        let statuses =
+            command.statuses
+            |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
+        let pullRequest =
+            PullRequest.create (PullRequestID.create command.number) (SHA.create command.sha) statuses
 
-    // TODO: wrap most of the code below in a new domain method called `enqueue`
-    let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
-    // TODO: Concept here, "locate pull request", multiple occurences
-    // TODO: Currently not checking to see if the pull request is currently running!
-    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
-    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
-    let prepared = prepareForQueue pullRequest
+        // Eventually load a DTO and parse to domain object
+        let model = load()
 
-    match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
-    | true, _, _, _ ->
-        RejectedFailingBuildStatus
-    | _, true, _, _ ->
-        AlreadyEnqueued
-    | _, _, true, _ ->
-        AlreadyEnqueued
-    | false, false, false, Choice2Of2 naughty ->
-        let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-        save newModel
-        SinBinned
-    | false, false, false, Choice1Of2 passing ->
-        let newModel = { model with queue = AttemptQueue.append passing model.queue }
-        save newModel
-        Enqueued
+        // TODO: wrap most of the code below in a new domain method called `enqueue`
+        let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
+        // TODO: Concept here, "locate pull request", multiple occurences
+        // TODO: Currently not checking to see if the pull request is currently running!
+        let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
+        let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
+        let prepared = prepareForQueue pullRequest
+
+        match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
+        | true, _, _, _ ->
+            RejectedFailingBuildStatus
+        | _, true, _, _ ->
+            AlreadyEnqueued
+        | _, _, true, _ ->
+            AlreadyEnqueued
+        | false, false, false, Choice2Of2 naughty ->
+            let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
+            save newModel
+            SinBinned
+        | false, false, false, Choice1Of2 passing ->
+            let newModel = { model with queue = AttemptQueue.append passing model.queue }
+            save newModel
+            Enqueued
 
 type DequeueResult =
     | Dequeued

@@ -6,6 +6,7 @@ open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.DbTypes
 open MergeQueue.Commands
+open MergeQueue.Commands.Enqueue
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
