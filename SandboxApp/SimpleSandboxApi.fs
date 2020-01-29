@@ -32,12 +32,12 @@ let view (load: Load) _request: WebPart =
     let sinBin =
         state
         |> peekSinBin
-        |> List.map (fun pr -> { id = PullRequestID.getValue pr.id })
+        |> List.map (fun pr -> { id = PullRequestID.value pr.id })
 
     let current =
         state
         |> peekCurrentBatch
-        |> Option.map (fun batch -> batch |> List.map (fun pr -> { id = PullRequestID.getValue pr.id }))
+        |> Option.map (fun batch -> batch |> List.map (fun pr -> { id = PullRequestID.value pr.id }))
 
     let plan =
         state
@@ -45,7 +45,7 @@ let view (load: Load) _request: WebPart =
         |> List.map (fun batch ->
             batch
             |> PlannedBatch.toPullRequestIds
-            |> List.map PullRequestID.getValue
+            |> List.map PullRequestID.value
             |> List.map (fun id -> { id = id }))
 
     let dto =

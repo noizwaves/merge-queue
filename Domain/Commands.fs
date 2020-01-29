@@ -23,7 +23,7 @@ let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
         command.statuses
         |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
     let pullRequest =
-        PullRequest.pullRequest (PullRequestID.create command.number) (SHA.create command.sha) statuses
+        PullRequest.create (PullRequestID.create command.number) (SHA.create command.sha) statuses
 
     // Eventually load a DTO and parse to domain object
     let model = load()

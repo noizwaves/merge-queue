@@ -3,7 +3,7 @@
 open MergeQueue.DomainTypes
 
 module PullRequest =
-    let pullRequest (id: PullRequestID) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =
+    let create (id: PullRequestID) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =
         { id = id
           sha = branchHead
           statuses = commitStatuses }
@@ -26,7 +26,7 @@ module SHA =
         SHA value
 
 module PullRequestID =
-    let getValue (PullRequestID id): int =
+    let value (PullRequestID id): int =
         id
 
     let create (value: int): PullRequestID =
