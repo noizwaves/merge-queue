@@ -8,6 +8,7 @@ open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
+open MergeQueue.Commands.StartBatch
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending

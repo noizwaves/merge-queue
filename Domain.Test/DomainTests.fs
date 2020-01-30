@@ -9,6 +9,7 @@ open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
+open MergeQueue.Commands.StartBatch
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending

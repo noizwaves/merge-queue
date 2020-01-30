@@ -117,34 +117,37 @@ module Dequeue =
         save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
         result
 
-type StartBatchResult =
-    | PerformBatchBuild of List<PullRequest>
-    | AlreadyRunning
-    | EmptyQueue
+module StartBatch =
+    type StartBatchCommand = unit
 
-// SMELL: what calls this? synchronous after some other call?
-// maybe make start batch private, and call it inside enqueue && updateStatus?
-let startBatch (load: Load) (save: Save) (): StartBatchResult =
-    let model = load()
-    match model.activeBatch, model.queue with
-    | Running _, _ -> AlreadyRunning
-    | Merging _, _ -> AlreadyRunning
-    | NoBatch, AttemptQueue [] -> EmptyQueue
-    | NoBatch, queue ->
-        match pickNextBatch queue with
-        | Some(batch, remaining) ->
-            let newModel =
-                { model with
-                      activeBatch = Running batch
-                      queue = remaining }
-            save newModel
+    type StartBatchResult =
+        | PerformBatchBuild of List<PullRequest>
+        | AlreadyRunning
+        | EmptyQueue
 
-            let pullRequests = batch |> RunnableBatch.toPullRequests
-            PerformBatchBuild pullRequests
-        | None ->
-            // SMELL: impossible code path, all non-empty queues have a next batch...
-            // SMELL: how could execution get here and result is empty?
-            EmptyQueue
+    // SMELL: what calls this? synchronous after some other call?
+    // maybe make start batch private, and call it inside enqueue && updateStatus?
+    let startBatch (load: Load) (save: Save) (command: StartBatchCommand): StartBatchResult =
+        let model = load()
+        match model.activeBatch, model.queue with
+        | Running _, _ -> AlreadyRunning
+        | Merging _, _ -> AlreadyRunning
+        | NoBatch, AttemptQueue [] -> EmptyQueue
+        | NoBatch, queue ->
+            match pickNextBatch queue with
+            | Some(batch, remaining) ->
+                let newModel =
+                    { model with
+                          activeBatch = Running batch
+                          queue = remaining }
+                save newModel
+
+                let pullRequests = batch |> RunnableBatch.toPullRequests
+                PerformBatchBuild pullRequests
+            | None ->
+                // SMELL: impossible code path, all non-empty queues have a next batch...
+                // SMELL: how could execution get here and result is empty?
+                EmptyQueue
 
 type BuildMessage =
     | Success of SHA

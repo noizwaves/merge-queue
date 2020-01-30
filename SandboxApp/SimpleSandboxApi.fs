@@ -10,6 +10,7 @@ open MergeQueue.DbTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.Dequeue
+open MergeQueue.Commands.StartBatch
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -116,7 +117,9 @@ let dequeue (load: Load) (save: Save) id: WebPart =
 
 let start (load: Load) (save: Save) _request: WebPart =
     let startBatch' = startBatch load save
-    let result = startBatch'()
+    let cmd = ()
+
+    let result = startBatch' cmd
 
     let response =
         match result with
