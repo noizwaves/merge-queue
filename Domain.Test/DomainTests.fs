@@ -10,6 +10,7 @@ open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
+open MergeQueue.Commands.IngestBuild
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -48,7 +49,7 @@ let private runningBatchOfTwo: MergeQueue =
 
 let private mergingBatchOfTwo: MergeQueue =
     runningBatchOfTwo
-    |> applyCommands (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
+    |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")})
     |> snd
 
 [<Fact>]
@@ -383,7 +384,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     let result, state =
         runningQueue
         |> applyCommands
-            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
+            (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")})
 
     result |> should equal (IngestBuildResult.PerformBatchMerge([ one; two ], (SHA.create "12345678")))
 
@@ -400,7 +401,7 @@ let ``Recieve message that batch failed the build when batch is running``() =
     let runningQueue = runningBatchOfTwo
 
     let result, state =
-        runningQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
+        runningQueue |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure})
 
     result |> should equal (IngestBuildResult.ReportBuildFailureWithRetry [ one; two ])
 
@@ -426,7 +427,7 @@ let ``Single PR batches that fail to build are dequeued``() =
         |> snd
 
     let result, state =
-        runningBatchOfOne |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
+        runningBatchOfOne |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure})
 
     result |> should equal (IngestBuildResult.ReportBuildFailureNoRetry [ one ])
 
@@ -447,7 +448,7 @@ let ``Recieve message that build failed when no running batch``() =
     let idleQueue = idleWithTwoPullRequests
 
     let result, state =
-        idleQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
+        idleQueue |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure})
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -460,7 +461,7 @@ let ``Recieve message that build succeeded when no running batch``() =
     let result, state =
         idleQueue
         |> applyCommands
-            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
+            (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")})
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -471,7 +472,7 @@ let ``Recieve message that build failed when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let (result, state) =
-        mergingQueue |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
+        mergingQueue |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure})
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -484,7 +485,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
     let (result, state) =
         mergingQueue
         |> applyCommands
-            (fun load save -> ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")))
+            (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")})
 
     result |> should equal IngestBuildResult.NoOp
 
@@ -506,7 +507,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let finishedQueue =
         runningQueueDepthThree
         |> applyCommands (fun load save ->
-            ingestBuildUpdate load save (BuildMessage.Success(SHA.create "12345678")) |> ignore
+            ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")} |> ignore
             ingestMergeUpdate load save MergeMessage.Success)
         |> snd
 
@@ -765,7 +766,7 @@ let ``Failed batches are bisected upon build failure``() =
             enqueue load save threeCmd |> ignore
             enqueue load save fourCmd |> ignore
             startBatch load save () |> ignore
-            ingestBuildUpdate load save BuildMessage.Failure)
+            ingestBuildUpdate load save { message = BuildMessage.Failure})
         |> snd
 
     // next batch contains only `one` and `two`
@@ -782,7 +783,7 @@ let ``Failed batches are bisected upon build failure``() =
 
     // fail the first bisected batch
     let _, bisectedFails =
-        firstState |> applyCommands (fun load save -> ingestBuildUpdate load save BuildMessage.Failure)
+        firstState |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure})
 
     // next batch contains only `one`
     bisectedFails

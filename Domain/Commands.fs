@@ -149,62 +149,68 @@ module StartBatch =
                 // SMELL: how could execution get here and result is empty?
                 EmptyQueue
 
-type BuildMessage =
-    | Success of SHA
-    | Failure
+module IngestBuild =
+    // TODO/SMELL: move domain type out of Command type
+    type BuildMessage =
+        | Success of SHA // TODO: make this a string
+        | Failure
 
-type IngestBuildResult =
-    | NoOp
-    | PerformBatchMerge of List<PullRequest> * SHA
-    | ReportBuildFailureWithRetry of List<PullRequest>
-    | ReportBuildFailureNoRetry of List<PullRequest>
+    type IngestBuildCommand = { message: BuildMessage }
 
-let ingestBuildUpdate (load: Load) (save: Save) (message: BuildMessage): IngestBuildResult =
-    let model = load()
-    match model.activeBatch, message with
-    | Running failed, Failure ->
-        match bisect failed with
-        | None ->
-            let queue, nextActive = failWithoutRetry model.queue failed
+    type IngestBuildResult =
+        | NoOp
+        | PerformBatchMerge of List<PullRequest> * SHA
+        | ReportBuildFailureWithRetry of List<PullRequest>
+        | ReportBuildFailureNoRetry of List<PullRequest>
 
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = nextActive }
+    let ingestBuildUpdate (load: Load) (save: Save) (command: IngestBuildCommand): IngestBuildResult =
+        let message = command.message
+
+        let model = load()
+        match model.activeBatch, message with
+        | Running failed, Failure ->
+            match bisect failed with
+            | None ->
+                let queue, nextActive = failWithoutRetry model.queue failed
+
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = nextActive }
+                save newModel
+
+                let prs = failed |> RunnableBatch.toPullRequests
+                ReportBuildFailureNoRetry prs
+
+            | Some(first, second) ->
+                let queue, nextActive = failWithRetry model.queue first second
+
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = nextActive }
+                save newModel
+
+                let prs = failed |> RunnableBatch.toPullRequests
+                ReportBuildFailureWithRetry prs
+
+        | Running succeeded, Success targetHead ->
+            let nextActive = completeBuild succeeded
+            let newModel = { model with activeBatch = nextActive }
+            let pullRequests = succeeded |> RunnableBatch.toPullRequests
+            let result = PerformBatchMerge(pullRequests, targetHead)
+
             save newModel
+            result
 
-            let prs = failed |> RunnableBatch.toPullRequests
-            ReportBuildFailureNoRetry prs
-
-        | Some(first, second) ->
-            let queue, nextActive = failWithRetry model.queue first second
-
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = nextActive }
-            save newModel
-
-            let prs = failed |> RunnableBatch.toPullRequests
-            ReportBuildFailureWithRetry prs
-
-    | Running succeeded, Success targetHead ->
-        let nextActive = completeBuild succeeded
-        let newModel = { model with activeBatch = nextActive }
-        let pullRequests = succeeded |> RunnableBatch.toPullRequests
-        let result = PerformBatchMerge(pullRequests, targetHead)
-
-        save newModel
-        result
-
-    | NoBatch, Failure ->
-        NoOp
-    | Merging _, Failure ->
-        NoOp
-    | NoBatch, Success _ ->
-        NoOp
-    | Merging _, Success _ ->
-        NoOp
+        | NoBatch, Failure ->
+            NoOp
+        | Merging _, Failure ->
+            NoOp
+        | NoBatch, Success _ ->
+            NoOp
+        | Merging _, Success _ ->
+            NoOp
 
 type MergeMessage =
     | Success

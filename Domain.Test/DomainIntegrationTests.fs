@@ -9,6 +9,7 @@ open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
+open MergeQueue.Commands.IngestBuild
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -123,7 +124,7 @@ let ``Realistic workflow``() =
 
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
     updatePullRequestSha' (PullRequestID.create 5555) (SHA.create "50505050") |> ignore
-    ingestBuildUpdate' BuildMessage.Failure |> ignore
+    ingestBuildUpdate' { message = BuildMessage.Failure} |> ignore
     updateStatuses' { number = 6666; sha = "60606060"; statuses = [ "circleci", "Success" ] } |> ignore
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
 
@@ -179,7 +180,7 @@ let ``Realistic workflow``() =
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
     dequeue' { number = 5555} |> ignore
     dequeue' { number = 3333} |> ignore
-    ingestBuildUpdate' (BuildMessage.Success(SHA.create "12000000")) |> ignore
+    ingestBuildUpdate' { message = (BuildMessage.Success(SHA.create "12000000"))} |> ignore
     ingestMergeUpdate' MergeMessage.Success |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
 
@@ -203,7 +204,7 @@ let ``Realistic workflow``() =
 
     // 7. Start a batch and it fails
     startBatch' () |> ignore
-    ingestBuildUpdate' BuildMessage.Failure |> ignore
+    ingestBuildUpdate' { message = BuildMessage.Failure} |> ignore
     let ``Start a batch and it fails`` = fetch()
 
     ``Start a batch and it fails``
@@ -270,7 +271,7 @@ let ``Realistic workflow``() =
     |> should equal [ PlannedBatch [ seven.id; eight.id; six.id ] ]
 
     // 10. Batch builds and merges successfully
-    ingestBuildUpdate' (BuildMessage.Success(SHA.create "76800000")) |> ignore
+    ingestBuildUpdate' { message = (BuildMessage.Success(SHA.create "76800000"))} |> ignore
     ingestMergeUpdate' MergeMessage.Success |> ignore
     let ``Batch builds and merges successfully`` = fetch()
 
