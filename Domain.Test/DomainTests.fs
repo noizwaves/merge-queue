@@ -5,13 +5,13 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.DbTypes
-open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
 open MergeQueue.Commands.IngestBuild
 open MergeQueue.Commands.IngestMerge
+open MergeQueue.Commands.UpdatePullRequest
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -156,7 +156,7 @@ let ``Enqueue a sin binned Pull Request``() =
         MergeQueue.empty
         |> applyCommands (fun load save ->
             enqueue load save oneCmd |> ignore
-            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010") |> ignore)
+            updatePullRequestSha load save { number = 1; sha = "10101010"} |> ignore)
         |> snd
 
     let result, state =
@@ -210,7 +210,7 @@ let ``Dequeue a sin binned Pull Request``() =
     let idleWithOneEnqueuedOneSinBinned =
         idleWithTwoPullRequests
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
         |> snd
 
     let result, state =
@@ -559,7 +559,7 @@ let ``The branch head for an enqueued PR is updated``() =
     let result, state =
         idle
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -579,7 +579,7 @@ let ``The branch head for a running PR is updated``() =
     let result, state =
         running
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
 
     result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], PullRequestID.create 1))
 
@@ -599,7 +599,7 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
     let result, state =
         running
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 404) (SHA.create "40400404"))
+            (fun load save -> updatePullRequestSha load save { number = 404; sha = "40400404"})
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -615,7 +615,7 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
     let result, state =
         runningBatchAndOnePrWaiting
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 333) (SHA.create "30303030"))
+            (fun load save -> updatePullRequestSha load save { number = 333; sha = "30303030"})
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -638,7 +638,7 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
     let result, state =
         mergingBatchAndOnePrWaiting
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 333) (SHA.create "30303030"))
+            (fun load save -> updatePullRequestSha load save { number = 333; sha = "30303030" })
 
     result |> should equal UpdatePullRequestResult.NoOp
 
@@ -661,7 +661,7 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
     let result, state =
         mergingBatchAndOnePrWaiting
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
 
     let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (PullRequestID.create 1))
     result |> should equal expectedResult
@@ -685,7 +685,7 @@ let ``An updated PR with successful build status is re-enqueued at the bottom``(
     let awaitingStatusInfo =
         idleWithTwoPullRequests
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
         |> snd
 
     let state =
@@ -706,7 +706,7 @@ let ``An updated PR with failing build status is not re-enqueued``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
         |> snd
 
     let state =
@@ -725,7 +725,7 @@ let ``Updates for a PR not in the sin bin is ignored``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
         |> applyCommands
-            (fun load save -> updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010"))
+            (fun load save -> updatePullRequestSha load save { number = 1; sha = "10101010"})
         |> snd
 
     let state =
@@ -742,8 +742,8 @@ let ``Old updates for a PR with many SHA updates are ignored``() =
     let awaitingStatusInfo =
         idleWithTwoPullRequests
         |> applyCommands (fun load save ->
-            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "10101010") |> ignore
-            updatePullRequestSha load save (PullRequestID.create 1) (SHA.create "11001100"))
+            updatePullRequestSha load save { number = 1; sha = "10101010"} |> ignore
+            updatePullRequestSha load save { number = 1; sha = "11001100"})
         |> snd
 
     let state =

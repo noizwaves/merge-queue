@@ -4,13 +4,13 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
-open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
 open MergeQueue.Commands.IngestBuild
 open MergeQueue.Commands.IngestMerge
+open MergeQueue.Commands.UpdatePullRequest
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -98,7 +98,7 @@ let ``Realistic workflow``() =
 
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
     updateStatuses' { number = 5555; sha = "00005555"; statuses = [ "circleci", "Failure" ] } |> ignore
-    updatePullRequestSha' (PullRequestID.create 6666) (SHA.create "60606060") |> ignore
+    updatePullRequestSha' { number = 6666; sha = "60606060" } |> ignore
     enqueue' sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch ()
 
@@ -124,7 +124,7 @@ let ``Realistic workflow``() =
              PlannedBatch [ seven.id ] ]
 
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
-    updatePullRequestSha' (PullRequestID.create 5555) (SHA.create "50505050") |> ignore
+    updatePullRequestSha' { number = 5555; sha = "50505050" } |> ignore
     ingestBuildUpdate' { message = BuildMessage.Failure} |> ignore
     updateStatuses' { number = 6666; sha = "60606060"; statuses = [ "circleci", "Success" ] } |> ignore
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
@@ -226,7 +226,7 @@ let ``Realistic workflow``() =
 
     // 8. Start another batch, Six's branch is updated during the build causing an abort
     startBatch' () |> ignore
-    updatePullRequestSha' (PullRequestID.create 6666) (SHA.create "66006600") |> ignore
+    updatePullRequestSha' { number = 6666; sha = "66006600" } |> ignore
     let ``Start another batch, Six's branch is updated during the build causing an abort`` = fetch()
 
     let six_v4 = PullRequest.create (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]

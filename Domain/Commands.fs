@@ -3,6 +3,7 @@ module MergeQueue.Commands
 open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
+open MergeQueue.Domain
 
 module Enqueue =
     // SMELL: the word Enqueue appears a lot here
@@ -255,62 +256,48 @@ module IngestMerge =
         | _, _ ->
             IngestMergeResult.NoOp
 
-type UpdatePullRequestResult =
-    | NoOp
-    | AbortRunningBatch of List<PullRequest> * PullRequestID
-    | AbortMergingBatch of List<PullRequest> * PullRequestID
+module UpdatePullRequest =
+    type UpdatePullRequestCommand = { number: int; sha: string }
 
-let updatePullRequestSha (load: Load) (save: Save) (id: PullRequestID) (newValue: SHA): UpdatePullRequestResult =
-    let model = load()
+    type UpdatePullRequestResult =
+        | NoOp
+        | AbortRunningBatch of List<PullRequest> * PullRequestID
+        | AbortMergingBatch of List<PullRequest> * PullRequestID
 
-    let newSinBin = model.sinBin |> updateShaInSinBin id newValue
-    let modelWithNewSinBin = { model with sinBin = newSinBin }
+    let updatePullRequestSha (load: Load) (save: Save) (command: UpdatePullRequestCommand): UpdatePullRequestResult =
+        // TODO: validation of inputs
+        let id = PullRequestID.create command.number
+        let newValue = SHA.create command.sha
 
-    match modelWithNewSinBin.activeBatch with
-    | Running batch ->
-        let abortRunningBatch, newQueue, newSinBin =
-            updateShaInRunningBatch id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+        let model = load()
 
-        if abortRunningBatch then
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      activeBatch = NoBatch
-                      sinBin = newSinBin }
-            save newModel
+        let newSinBin = model.sinBin |> updateShaInSinBin id newValue
+        let modelWithNewSinBin = { model with sinBin = newSinBin }
 
-            let pullRequests = batch |> RunnableBatch.toPullRequests
-            AbortRunningBatch(pullRequests, id)
+        match modelWithNewSinBin.activeBatch with
+        | Running batch ->
+            let abortRunningBatch, newQueue, newSinBin =
+                updateShaInRunningBatch id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
-        else
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      sinBin = newSinBin }
-            save newModel
-            NoOp
-    | NoBatch ->
-        let newQueue, newSinBin =
-            updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            if abortRunningBatch then
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          activeBatch = NoBatch
+                          sinBin = newSinBin }
+                save newModel
 
-        let newModel =
-            { modelWithNewSinBin with
-                  queue = newQueue
-                  sinBin = newSinBin }
-        save newModel
-        NoOp
+                let pullRequests = batch |> RunnableBatch.toPullRequests
+                AbortRunningBatch(pullRequests, id)
 
-    | Merging batch ->
-        let inMergingBatch = batch |> MergeableBatch.contains id
-
-        if inMergingBatch then
-            let newModel =
-                { modelWithNewSinBin with activeBatch = NoBatch }
-            save newModel
-
-            let pullRequests = batch |> MergeableBatch.toPullRequests
-            AbortMergingBatch(pullRequests, id)
-        else
+            else
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          sinBin = newSinBin }
+                save newModel
+                NoOp
+        | NoBatch ->
             let newQueue, newSinBin =
                 updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
@@ -320,6 +307,27 @@ let updatePullRequestSha (load: Load) (save: Save) (id: PullRequestID) (newValue
                       sinBin = newSinBin }
             save newModel
             NoOp
+
+        | Merging batch ->
+            let inMergingBatch = batch |> MergeableBatch.contains id
+
+            if inMergingBatch then
+                let newModel =
+                    { modelWithNewSinBin with activeBatch = NoBatch }
+                save newModel
+
+                let pullRequests = batch |> MergeableBatch.toPullRequests
+                AbortMergingBatch(pullRequests, id)
+            else
+                let newQueue, newSinBin =
+                    updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          sinBin = newSinBin }
+                save newModel
+                NoOp
 
 module UpdateStatuses =
     type UpdateStatusesResult =
