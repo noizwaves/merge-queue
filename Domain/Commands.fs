@@ -3,7 +3,6 @@ module MergeQueue.Commands
 open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
-open MergeQueue.Domain
 
 module Enqueue =
     // SMELL: the word Enqueue appears a lot here
@@ -57,8 +56,9 @@ module Enqueue =
             Enqueued
 
 module Dequeue =
-    type DequeueCommand = { number: int }
-    
+    type DequeueCommand =
+        { number: int }
+
     type DequeueResult =
         | Dequeued
         | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
@@ -68,7 +68,7 @@ module Dequeue =
     let dequeue (load: Load) (save: Save) (command: DequeueCommand): DequeueResult =
         // TODO: validation
         let id = PullRequestID.create command.number
-        
+
         let model = load()
         // TODO: Concept here, "locate pull request", multiple occurrences
         let isCurrent = model.activeBatch |> ActiveBatch.contains id
@@ -156,7 +156,8 @@ module IngestBuild =
         | Success of SHA // TODO: make this a string
         | Failure
 
-    type IngestBuildCommand = { message: BuildMessage }
+    type IngestBuildCommand =
+        { message: BuildMessage }
 
     type IngestBuildResult =
         | NoOp
@@ -218,7 +219,8 @@ module IngestMerge =
         | Success
         | Failure
 
-    type IngestMergeCommand = { message: MergeMessage }
+    type IngestMergeCommand =
+        { message: MergeMessage }
 
     type IngestMergeResult =
         | NoOp
@@ -257,7 +259,9 @@ module IngestMerge =
             IngestMergeResult.NoOp
 
 module UpdatePullRequest =
-    type UpdatePullRequestCommand = { number: int; sha: string }
+    type UpdatePullRequestCommand =
+        { number: int
+          sha: string }
 
     type UpdatePullRequestResult =
         | NoOp
@@ -330,10 +334,12 @@ module UpdatePullRequest =
                 NoOp
 
 module UpdateStatuses =
-    type UpdateStatusesResult =
-        | NoOp
+    type UpdateStatusesResult = NoOp
 
-    type UpdateStatusesCommand = { number: int; sha: string; statuses: List<string * string> }
+    type UpdateStatusesCommand =
+        { number: int
+          sha: string
+          statuses: List<string * string> }
 
     let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
         // TODO: perform validation here

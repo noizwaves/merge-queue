@@ -65,7 +65,11 @@ let view (load: Load) _request: WebPart =
 
 let enqueue (load: Load) (save: Save) id: WebPart =
     let enqueue' = enqueue load save
-    let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Success" ] }
+
+    let cmd =
+        { number = id
+          sha = "00001234"
+          statuses = [ "circleci", "Success" ] }
 
     let result = enqueue' cmd
 
@@ -83,7 +87,11 @@ let enqueue (load: Load) (save: Save) id: WebPart =
 
 let fireAndForget (load: Load) (save: Save) id: WebPart =
     let enqueue' = Enqueue.enqueue load save
-    let cmd = { number = id; sha = "00001234"; statuses = [ "circleci", "Pending" ]}
+
+    let cmd =
+        { number = id
+          sha = "00001234"
+          statuses = [ "circleci", "Pending" ] }
 
     let result = enqueue' cmd
 
