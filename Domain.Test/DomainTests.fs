@@ -11,6 +11,7 @@ open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
 open MergeQueue.Commands.IngestBuild
+open MergeQueue.Commands.IngestMerge
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -508,7 +509,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         runningQueueDepthThree
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = BuildMessage.Success(SHA.create "12345678")} |> ignore
-            ingestMergeUpdate load save MergeMessage.Success)
+            ingestMergeUpdate load save { message = MergeMessage.Success })
         |> snd
 
     finishedQueue
@@ -527,7 +528,7 @@ let ``Merge success message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save MergeMessage.Success)
+        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save { message = MergeMessage.Success })
 
     result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
 
@@ -538,7 +539,7 @@ let ``Merge failure message when batch is being merged``() =
     let mergingQueue = mergingBatchOfTwo
 
     let result, state =
-        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save (MergeMessage.Failure))
+        mergingQueue |> applyCommands (fun load save -> ingestMergeUpdate load save { message = MergeMessage.Failure })
 
     state
     |> peekCurrentQueue

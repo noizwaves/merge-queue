@@ -12,6 +12,7 @@ open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
 open MergeQueue.Commands.IngestBuild
+open MergeQueue.Commands.IngestMerge
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -135,7 +136,7 @@ let start (load: Load) (save: Save) _request: WebPart =
 
 let finish (load: Load) (save: Save) _request: WebPart =
     let ingestBuildUpdate' = ingestBuildUpdate load save
-    let ingestMergeUpdate' = Commands.ingestMergeUpdate load save
+    let ingestMergeUpdate' = ingestMergeUpdate load save
 
     let result = ingestBuildUpdate' { message = BuildMessage.Success(SHA.create "12345678") }
 
@@ -144,7 +145,7 @@ let finish (load: Load) (save: Save) _request: WebPart =
         | IngestBuildResult.NoOp -> "NoOp"
         | PerformBatchMerge _ ->
             // HACK: do the merge if we should it...
-            ingestMergeUpdate' (MergeMessage.Success) |> ignore
+            ingestMergeUpdate' { message = (MergeMessage.Success) } |> ignore
             "Batch finished"
         | ReportBuildFailureWithRetry _ -> "Batch failed"
         | ReportBuildFailureNoRetry _ -> "Batch failed"

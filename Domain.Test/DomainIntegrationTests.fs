@@ -10,6 +10,7 @@ open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
 open MergeQueue.Commands.StartBatch
 open MergeQueue.Commands.IngestBuild
+open MergeQueue.Commands.IngestMerge
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -181,7 +182,7 @@ let ``Realistic workflow``() =
     dequeue' { number = 5555} |> ignore
     dequeue' { number = 3333} |> ignore
     ingestBuildUpdate' { message = (BuildMessage.Success(SHA.create "12000000"))} |> ignore
-    ingestMergeUpdate' MergeMessage.Success |> ignore
+    ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
 
     ``Five is dequeued, Three is dequeued, The batch builds and merges successfully``
@@ -272,7 +273,7 @@ let ``Realistic workflow``() =
 
     // 10. Batch builds and merges successfully
     ingestBuildUpdate' { message = (BuildMessage.Success(SHA.create "76800000"))} |> ignore
-    ingestMergeUpdate' MergeMessage.Success |> ignore
+    ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
     let ``Batch builds and merges successfully`` = fetch()
 
     ``Batch builds and merges successfully`` |> should equal MergeQueue.empty

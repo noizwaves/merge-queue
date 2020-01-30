@@ -212,43 +212,48 @@ module IngestBuild =
         | Merging _, Success _ ->
             NoOp
 
-type MergeMessage =
-    | Success
-    | Failure
+module IngestMerge =
+    type MergeMessage =
+        | Success
+        | Failure
 
-type IngestMergeResult =
-    | NoOp
-    | MergeComplete of List<PullRequest>
-    | ReportMergeFailure of List<PullRequest>
+    type IngestMergeCommand = { message: MergeMessage }
 
-let ingestMergeUpdate (load: Load) (save: Save) (message: MergeMessage): IngestMergeResult =
-    let model = load()
-    match model.activeBatch, message with
-    | Merging merged, MergeMessage.Success ->
-        let queue, batch = merged |> completeMerge model.queue
+    type IngestMergeResult =
+        | NoOp
+        | MergeComplete of List<PullRequest>
+        | ReportMergeFailure of List<PullRequest>
 
-        let newModel =
-            { model with
-                  queue = queue
-                  activeBatch = batch }
-        save newModel
+    let ingestMergeUpdate (load: Load) (save: Save) (command: IngestMergeCommand): IngestMergeResult =
+        let message = command.message
 
-        let pullRequests = merged |> MergeableBatch.toPullRequests
+        let model = load()
+        match model.activeBatch, message with
+        | Merging merged, MergeMessage.Success ->
+            let queue, batch = merged |> completeMerge model.queue
 
-        MergeComplete pullRequests
-    | Merging unmerged, MergeMessage.Failure ->
-        let queue, batch = unmerged |> failMerge model.queue
-        let pullRequests = unmerged |> MergeableBatch.toPullRequests
+            let newModel =
+                { model with
+                      queue = queue
+                      activeBatch = batch }
+            save newModel
 
-        let newModel =
-            { model with
-                  queue = queue
-                  activeBatch = batch }
-        save newModel
+            let pullRequests = merged |> MergeableBatch.toPullRequests
 
-        ReportMergeFailure pullRequests
-    | _, _ ->
-        IngestMergeResult.NoOp
+            MergeComplete pullRequests
+        | Merging unmerged, MergeMessage.Failure ->
+            let queue, batch = unmerged |> failMerge model.queue
+            let pullRequests = unmerged |> MergeableBatch.toPullRequests
+
+            let newModel =
+                { model with
+                      queue = queue
+                      activeBatch = batch }
+            save newModel
+
+            ReportMergeFailure pullRequests
+        | _, _ ->
+            IngestMergeResult.NoOp
 
 type UpdatePullRequestResult =
     | NoOp
