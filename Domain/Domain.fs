@@ -9,12 +9,12 @@ module PullRequest =
           statuses = commitStatuses }
 
 module CommitStatusState =
-    let create (value: string): CommitStatusState =
+    let create (value: string): Result<CommitStatusState, string> =
         match value with
-        | "Pending" -> Pending
-        | "Success" -> Success
-        | "Failure" -> Failure
-        | _ -> failwith "This failed. It can fail. It should return a Result.Error"
+        | "Pending" -> Ok Pending
+        | "Success" -> Ok Success
+        | "Failure" -> Ok Failure
+        | _ -> Error "value must be either 'Pending', 'Success', or 'Failure'"
 
 module CommitStatus =
     let create (context: string) (state: CommitStatusState): CommitStatus =

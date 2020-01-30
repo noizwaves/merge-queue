@@ -4,6 +4,33 @@ open MergeQueue.DomainTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 
+let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): Result<List<'a>, 'b> =
+    match results with
+    | [] ->
+        Ok []
+    | Error b :: tail ->
+        Error b
+    | Ok a :: tail ->
+        tail
+        |> consolidateResultList
+        |> Result.map (fun aa -> a :: aa)
+
+// TODO: tidy this up with computation expressions and composition
+// TODO: move to somewhere not the Command module?
+let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
+    let number' = PullRequestID.create number
+    let sha' = SHA.create sha
+
+    let statuses' =
+        statuses
+        |> List.map (fun (context, state) ->
+            let state' = CommitStatusState.create state
+            state' |> Result.map (CommitStatus.create context))
+        |> consolidateResultList
+
+    statuses' |> Result.map (PullRequest.create number' sha')
+
+
 module Enqueue =
     // SMELL: the word Enqueue appears a lot here
 
@@ -20,13 +47,13 @@ module Enqueue =
         | AlreadyEnqueued
 
     let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
+        let maybePullRequest = toPullRequestDomain command.number command.sha command.statuses
 
-        // TODO: perform validation here
-        let statuses =
-            command.statuses
-            |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
+        // TODO: chain validation with further processing and return errors
         let pullRequest =
-            PullRequest.create (PullRequestID.create command.number) (SHA.create command.sha) statuses
+            match maybePullRequest with
+            | Ok pullRequest -> pullRequest
+            | Error error -> failwithf "Validation failed: %s" error
 
         // Eventually load a DTO and parse to domain object
         let model = load()
@@ -345,15 +372,26 @@ module UpdateStatuses =
         // TODO: perform validation here
         let id = PullRequestID.create command.number
         let buildSha = SHA.create command.sha
+
         let statuses =
             command.statuses
-            |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
+            |> List.map (fun (context, state) ->
+                let state' = CommitStatusState.create state
+                state' |> Result.map (CommitStatus.create context))
+            |> consolidateResultList
+
+        // TODO: chain validation with further processing and return errors
+        // TODO: consolidate validation with that in Command.Enqueue
+        let statuses' =
+            match statuses with
+            | Ok statuses -> statuses
+            | Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
-            updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
+            updateStatusesInSinBin id buildSha statuses' model.queue model.sinBin
 
         let newModel =
             { model with
