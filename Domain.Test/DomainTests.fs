@@ -8,6 +8,7 @@ open MergeQueue.DbTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
+open MergeQueue.Commands.Dequeue
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -189,7 +190,7 @@ let ``Enqueue multiple Pull Requests``() =
 [<Fact>]
 let ``Dequeue an enqueued Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
+        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 1})
 
     result |> should equal (DequeueResult.Dequeued)
 
@@ -211,7 +212,7 @@ let ``Dequeue a sin binned Pull Request``() =
 
     let result, state =
         idleWithOneEnqueuedOneSinBinned
-        |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
+        |> applyCommands (fun load save -> dequeue load save { number = 1})
 
     result |> should equal (DequeueResult.Dequeued)
 
@@ -226,7 +227,7 @@ let ``Dequeue a sin binned Pull Request``() =
 [<Fact>]
 let ``Dequeue an unknown Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 404))
+        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404})
 
     result |> should equal (DequeueResult.NotFound)
 
@@ -241,7 +242,7 @@ let ``Dequeue an unknown Pull Request``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
-        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
+        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1})
 
     result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (PullRequestID.create 1)))
 
@@ -263,7 +264,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
         runningBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeCmd |> ignore
-            dequeue load save (PullRequestID.create 333))
+            dequeue load save { number = 333})
 
     result |> should equal DequeueResult.Dequeued
 
@@ -282,7 +283,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
-        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save (PullRequestID.create 1))
+        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1})
 
     result |> should equal DequeueResult.RejectedInMergingBatch
 
@@ -294,7 +295,7 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
         mergingBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeCmd |> ignore
-            dequeue load save (PullRequestID.create 333))
+            dequeue load save { number = 333})
 
     result |> should equal DequeueResult.Dequeued
 

@@ -55,61 +55,67 @@ module Enqueue =
             save newModel
             Enqueued
 
-type DequeueResult =
-    | Dequeued
-    | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
-    | RejectedInMergingBatch
-    | NotFound
+module Dequeue =
+    type DequeueCommand = { number: int }
+    
+    type DequeueResult =
+        | Dequeued
+        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
+        | RejectedInMergingBatch
+        | NotFound
 
-let dequeue (load: Load) (save: Save) (id: PullRequestID): DequeueResult =
-    let model = load()
-    // TODO: Concept here, "locate pull request", multiple occurrences
-    let isCurrent = model.activeBatch |> ActiveBatch.contains id
-    let isEnqueued = model.queue |> AttemptQueue.contains id
-    let isSinBinned = model.sinBin |> SinBin.contains id
+    let dequeue (load: Load) (save: Save) (command: DequeueCommand): DequeueResult =
+        // TODO: validation
+        let id = PullRequestID.create command.number
+        
+        let model = load()
+        // TODO: Concept here, "locate pull request", multiple occurrences
+        let isCurrent = model.activeBatch |> ActiveBatch.contains id
+        let isEnqueued = model.queue |> AttemptQueue.contains id
+        let isSinBinned = model.sinBin |> SinBin.contains id
 
-    let result, newModel =
-        match isCurrent, isEnqueued, isSinBinned with
-        | true, _, _ ->
-            match model.activeBatch with
-            | Running(RunnableBatch batch) ->
-                let newQueue =
-                    model.queue
-                    |> AttemptQueue.prepend batch
-                    |> AttemptQueue.removeById id
+        let result, newModel =
+            match isCurrent, isEnqueued, isSinBinned with
+            | true, _, _ ->
+                match model.activeBatch with
+                | Running(RunnableBatch batch) ->
+                    let newQueue =
+                        model.queue
+                        |> AttemptQueue.prepend batch
+                        |> AttemptQueue.removeById id
 
-                let newBatch = NoBatch
+                    let newBatch = NoBatch
 
-                let pullRequests = batch |> Batch.toPullRequests
-                let result = DequeuedAndAbortRunningBatch(pullRequests, id)
+                    let pullRequests = batch |> Batch.toPullRequests
+                    let result = DequeuedAndAbortRunningBatch(pullRequests, id)
 
-                let newModel =
-                    { model with
-                          queue = newQueue
-                          activeBatch = newBatch }
-                result, newModel
+                    let newModel =
+                        { model with
+                              queue = newQueue
+                              activeBatch = newBatch }
+                    result, newModel
 
-            | Merging _ ->
-                RejectedInMergingBatch, model
+                | Merging _ ->
+                    RejectedInMergingBatch, model
 
-            | NoBatch ->
-                // SMELL: this is an impossible branch to get into...
-                failwith "PullRequest cannot be in an empty batch"
+                | NoBatch ->
+                    // SMELL: this is an impossible branch to get into...
+                    failwith "PullRequest cannot be in an empty batch"
 
-        | _, true, _ ->
-            let newQueue = model.queue |> AttemptQueue.removeById id
-            Dequeued, { model with queue = newQueue }
+            | _, true, _ ->
+                let newQueue = model.queue |> AttemptQueue.removeById id
+                Dequeued, { model with queue = newQueue }
 
-        | _, _, true ->
-            let newSinBin = model.sinBin |> SinBin.removeById id
-            Dequeued, { model with sinBin = newSinBin }
+            | _, _, true ->
+                let newSinBin = model.sinBin |> SinBin.removeById id
+                Dequeued, { model with sinBin = newSinBin }
 
-        | false, false, false ->
-            NotFound, model
+            | false, false, false ->
+                NotFound, model
 
 
-    save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
-    result
+        save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
+        result
 
 type StartBatchResult =
     | PerformBatchBuild of List<PullRequest>

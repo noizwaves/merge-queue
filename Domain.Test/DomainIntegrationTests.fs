@@ -7,6 +7,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
+open MergeQueue.Commands.Dequeue
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -175,8 +176,8 @@ let ``Realistic workflow``() =
              PlannedBatch [ seven.id; six.id; eight.id ] ]
 
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
-    dequeue' (PullRequestID.create 5555) |> ignore
-    dequeue' (PullRequestID.create 3333) |> ignore
+    dequeue' { number = 5555} |> ignore
+    dequeue' { number = 3333} |> ignore
     ingestBuildUpdate' (BuildMessage.Success(SHA.create "12000000")) |> ignore
     ingestMergeUpdate' MergeMessage.Success |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()

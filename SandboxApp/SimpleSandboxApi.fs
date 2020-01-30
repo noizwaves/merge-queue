@@ -9,6 +9,7 @@ open MergeQueue.Domain
 open MergeQueue.DbTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
+open MergeQueue.Commands.Dequeue
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -96,8 +97,10 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let dequeue (load: Load) (save: Save) id: WebPart =
-    let dequeue' = Commands.dequeue load save
-    let result = dequeue' (PullRequestID.create id)
+    let dequeue' = dequeue load save
+    let cmd = { number = id }
+
+    let result = dequeue' cmd
 
     let response =
         match result with
