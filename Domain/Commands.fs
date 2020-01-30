@@ -301,19 +301,30 @@ let updatePullRequestSha (load: Load) (save: Save) (id: PullRequestID) (newValue
             save newModel
             NoOp
 
-// TODO: Make an UpdateStatusesResult type
+module UpdateStatuses =
+    type UpdateStatusesResult =
+        | NoOp
 
-let updateStatuses (load: Load) (save: Save) (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses): unit =
-    let model = load()
+    type UpdateStatusesCommand = { number: int; sha: string; statuses: List<string * string> }
 
-    // check to see if we should pull the matching commit out of the "sin bin"
-    let newQueue, newSinBin =
-        updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
+    let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
+        // TODO: perform validation here
+        let id = PullRequestID.create command.number
+        let buildSha = SHA.create command.sha
+        let statuses =
+            command.statuses
+            |> List.map (fun (context, state) -> CommitStatus.create context (CommitStatusState.create state))
 
-    let newModel =
-        { model with
-              queue = newQueue
-              sinBin = newSinBin }
-    save newModel
+        let model = load()
 
-    ()
+        // check to see if we should pull the matching commit out of the "sin bin"
+        let newQueue, newSinBin =
+            updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
+
+        let newModel =
+            { model with
+                  queue = newQueue
+                  sinBin = newSinBin }
+        save newModel
+
+        NoOp

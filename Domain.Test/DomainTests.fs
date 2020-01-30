@@ -7,6 +7,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.DbTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
+open MergeQueue.Commands.UpdateStatuses
 
 let private passedLinter = CommitStatus.create "uberlinter" CommitStatusState.Success
 let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
@@ -14,13 +15,13 @@ let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Su
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
 let private one = PullRequest.create (PullRequestID.create 1) (SHA.create "00001111") [ passedCircleCI ]
-let private oneCmd = { number = 1; sha = "00001111"; statuses = [ "circleci", "Success" ] }
+let private oneCmd: EnqueueCommand = { number = 1; sha = "00001111"; statuses = [ "circleci", "Success" ] }
 let private two = PullRequest.create (PullRequestID.create 22) (SHA.create "00002222") [ passedCircleCI ]
-let private twoCmd = { number = 22; sha = "00002222"; statuses = [ "circleci", "Success" ] }
+let private twoCmd: EnqueueCommand = { number = 22; sha = "00002222"; statuses = [ "circleci", "Success" ] }
 let private three = PullRequest.create (PullRequestID.create 333) (SHA.create "00003333") [ passedCircleCI ]
-let private threeCmd = { number = 333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
+let private threeCmd: EnqueueCommand = { number = 333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
 let private four = PullRequest.create (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
-let private fourCmd = { number = 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
+let private fourCmd: EnqueueCommand = { number = 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
 
 let private applyCommands<'a> (func: Load -> Save -> 'a) (initial: MergeQueue): 'a * MergeQueue =
     // SMELL: collect all updates
@@ -687,7 +688,7 @@ let ``An updated PR with successful build status is re-enqueued at the bottom``(
         awaitingStatusInfo
         |> applyCommands
             (fun load save ->
-            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ])
+            updateStatuses load save { number = 1; sha = "10101010"; statuses = [ "circleci", "Success" ] })
         |> snd
 
     state
@@ -708,7 +709,7 @@ let ``An updated PR with failing build status is not re-enqueued``() =
         awaitingStatusInfo
         |> applyCommands
             (fun load save ->
-            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ failedCircleCI ])
+            updateStatuses load save { number = 1; sha = "10101010"; statuses = [ "circleci", "Failure" ] })
         |> snd
 
     state
@@ -727,7 +728,7 @@ let ``Updates for a PR not in the sin bin is ignored``() =
         awaitingStatusInfo
         |> applyCommands
             (fun load save ->
-            updateStatuses load save (PullRequestID.create 333) (SHA.create "10101010") [ passedCircleCI ])
+            updateStatuses load save { number = 333; sha = "10101010"; statuses = [ "circleci", "Success" ] })
         |> snd
 
     state |> should equal awaitingStatusInfo
@@ -745,7 +746,7 @@ let ``Old updates for a PR with many SHA updates are ignored``() =
         awaitingStatusInfo
         |> applyCommands
             (fun load save ->
-            updateStatuses load save (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ])
+            updateStatuses load save { number = 1; sha = "10101010"; statuses = [ "circleci", "Success" ] })
         |> snd
 
     state

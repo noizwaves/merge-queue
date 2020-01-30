@@ -6,27 +6,28 @@ open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
+open MergeQueue.Commands.UpdateStatuses
 
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
 let private one = PullRequest.create (PullRequestID.create 1111) (SHA.create "00001111") [ passedCircleCI ]
-let private oneCmd = { number= 1111; sha = "00001111"; statuses = [ "circleci", "Success" ] }
+let private oneCmd: EnqueueCommand = { number= 1111; sha = "00001111"; statuses = [ "circleci", "Success" ] }
 let private two = PullRequest.create (PullRequestID.create 2222) (SHA.create "00002222") [ passedCircleCI ]
-let private twoCmd = { number= 2222; sha = "00002222"; statuses = [ "circleci", "Success" ] }
+let private twoCmd: EnqueueCommand = { number= 2222; sha = "00002222"; statuses = [ "circleci", "Success" ] }
 let private three = PullRequest.create (PullRequestID.create 3333) (SHA.create "00003333") [ passedCircleCI ]
-let private threeCmd = { number= 3333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
+let private threeCmd: EnqueueCommand = { number= 3333; sha = "00003333"; statuses = [ "circleci", "Success" ] }
 let private four = PullRequest.create (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
-let private fourCmd = { number= 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
+let private fourCmd: EnqueueCommand = { number= 4444; sha = "00004444"; statuses = [ "circleci", "Success" ] }
 let private five = PullRequest.create (PullRequestID.create 5555) (SHA.create "00005555") [ pendingCircleCI ]
-let private fiveCmd = { number= 5555; sha = "00005555"; statuses = [ "circleci", "Pending" ] }
+let private fiveCmd: EnqueueCommand = { number= 5555; sha = "00005555"; statuses = [ "circleci", "Pending" ] }
 let private six = PullRequest.create (PullRequestID.create 6666) (SHA.create "00006666") [ passedCircleCI ]
-let private sixCmd = { number= 6666; sha = "00006666"; statuses = [ "circleci", "Success" ] }
+let private sixCmd: EnqueueCommand = { number= 6666; sha = "00006666"; statuses = [ "circleci", "Success" ] }
 let private seven = PullRequest.create (PullRequestID.create 7777) (SHA.create "00007777") [ passedCircleCI ]
-let private sevenCmd = { number= 7777; sha = "00007777"; statuses = [ "circleci", "Success" ] }
+let private sevenCmd: EnqueueCommand = { number= 7777; sha = "00007777"; statuses = [ "circleci", "Success" ] }
 let private eight = PullRequest.create (PullRequestID.create 8888) (SHA.create "00008888") [ passedCircleCI ]
-let private eightCmd = { number= 8888; sha = "00008888"; statuses = [ "circleci", "Success" ] }
+let private eightCmd: EnqueueCommand = { number= 8888; sha = "00008888"; statuses = [ "circleci", "Success" ] }
 
 
 [<Fact>]
@@ -92,7 +93,7 @@ let ``Realistic workflow``() =
              PlannedBatch [ six.id ] ]
 
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
-    updateStatuses' (PullRequestID.create 5555) (SHA.create "00005555") [ failedCircleCI ] |> ignore
+    updateStatuses' { number = 5555; sha = "00005555"; statuses = [ "circleci", "Failure" ] } |> ignore
     updatePullRequestSha' (PullRequestID.create 6666) (SHA.create "60606060") |> ignore
     enqueue' sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch ()
@@ -121,7 +122,7 @@ let ``Realistic workflow``() =
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
     updatePullRequestSha' (PullRequestID.create 5555) (SHA.create "50505050") |> ignore
     ingestBuildUpdate' BuildMessage.Failure |> ignore
-    updateStatuses' (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ] |> ignore
+    updateStatuses' { number = 6666; sha = "60606060"; statuses = [ "circleci", "Success" ] } |> ignore
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
 
     let six_v3 = PullRequest.create (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
@@ -149,7 +150,7 @@ let ``Realistic workflow``() =
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     startBatch' ()  |> ignore
     enqueue' eightCmd  |> ignore
-    updateStatuses' (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]  |> ignore
+    updateStatuses' { number = 5555; sha = "50505050"; statuses = [ "circleci", "Failure" ] }  |> ignore
     let ``Start another batch, Eight is enqueued, Five's build fails again`` = fetch()
 
     let five_v4 = PullRequest.create (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
@@ -243,8 +244,8 @@ let ``Realistic workflow``() =
     |> should equal [ PlannedBatch [ seven.id; eight.id ] ]
 
     // 9. Six's build starts then passes, start a batch
-    updateStatuses' (PullRequestID.create 6666) (SHA.create "66006600") [ pendingCircleCI ] |> ignore
-    updateStatuses' (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ] |> ignore
+    updateStatuses' { number = 6666; sha = "66006600"; statuses = [ "circleci", "Pending" ] } |> ignore
+    updateStatuses' { number = 6666; sha = "66006600"; statuses = [ "circleci", "Success" ] } |> ignore
     startBatch' () |> ignore
     let ``Six's build starts then passes, start a batch`` = fetch()
 
