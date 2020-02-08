@@ -12,10 +12,6 @@ open MergeQueue.Commands.IngestBuild
 open MergeQueue.Commands.IngestMerge
 open MergeQueue.Commands.UpdatePullRequest
 
-let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
-let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
-let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
-
 let private getOrFail result =
     match result with
     | Ok a -> a
@@ -23,6 +19,11 @@ let private getOrFail result =
 
 let private makePullRequestID = PullRequestID.create >> getOrFail
 let private makeSha = SHA.create >> getOrFail
+let private makeCommitStatus = CommitStatus.create >> getOrFail
+
+let private passedCircleCI = makeCommitStatus ("circleci", "Success")
+let private pendingCircleCI = makeCommitStatus ("circleci", "Pending")
+let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 
 let private one = PullRequest.create (makePullRequestID 1111) (makeSha "00001111") [ passedCircleCI ]
 

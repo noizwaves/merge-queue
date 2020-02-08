@@ -18,7 +18,6 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
-    1.  add validation to other Domain types
     1.  use a result computation expression to simplify validation
     1.  replace failwithf calls with ValidationFailed results
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>

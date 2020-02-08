@@ -20,12 +20,9 @@ let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): R
 let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
     let number' = PullRequestID.create number
     let sha' = SHA.create sha
-    // TODO: statuses should take a DTO here
     let statuses' =
         statuses
-        |> List.map (fun (context, state) ->
-            let state' = CommitStatusState.create state
-            state' |> Result.map (CommitStatus.create context))
+        |> List.map CommitStatus.create
         |> consolidateResultList
 
     match number', sha', statuses' with
@@ -384,12 +381,9 @@ module UpdateStatuses =
         // TODO: chain validation with further processing and return errors
         let id' = PullRequestID.create command.number
         let buildSha' = SHA.create command.sha
-
         let statuses' =
             command.statuses
-            |> List.map (fun (context, state) ->
-                let state' = CommitStatusState.create state
-                state' |> Result.map (CommitStatus.create context))
+            |> List.map CommitStatus.create
             |> consolidateResultList
 
         let id, buildSha, statuses =

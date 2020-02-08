@@ -17,20 +17,21 @@ module CommitStatusState =
         | _ -> Error "value must be either 'Pending', 'Success', or 'Failure'"
 
 module CommitStatus =
-    let create (context: string) (state: CommitStatusState): CommitStatus =
-        { context = context
-          state = state }
+    let create (context: string, state: string): Result<CommitStatus, string> =
+        state
+        |> CommitStatusState.create
+        |> Result.map (fun s -> { context = context; state = s })
 
 module SHA =
     let create (value: string): Result<SHA, string> =
-        Ok (SHA value)
+        Ok(SHA value)
 
 module PullRequestID =
     let value (PullRequestID id): int =
         id
 
     let create (value: int): Result<PullRequestID, string> =
-        Ok (PullRequestID value)
+        Ok(PullRequestID value)
 
 module Batch =
     let toPullRequests (Batch batch): List<PullRequest> =
