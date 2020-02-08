@@ -22,8 +22,8 @@ module CommitStatus =
           state = state }
 
 module SHA =
-    let create (value: string): SHA =
-        SHA value
+    let create (value: string): Result<SHA, string> =
+        Ok (SHA value)
 
 module PullRequestID =
     let value (PullRequestID id): int =

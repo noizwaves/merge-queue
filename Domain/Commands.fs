@@ -20,7 +20,7 @@ let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): R
 let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
     let number' = PullRequestID.create number
     let sha' = SHA.create sha
-
+    // TODO: statuses should take a DTO here
     let statuses' =
         statuses
         |> List.map (fun (context, state) ->
@@ -28,10 +28,11 @@ let private toPullRequestDomain (number: int) (sha: string) (statuses: List<stri
             state' |> Result.map (CommitStatus.create context))
         |> consolidateResultList
 
-    match number', statuses' with
-    | Error err, _ -> Error err
-    | _, Error err -> Error err
-    | Ok number, Ok statuses -> Ok(PullRequest.create number sha' statuses)
+    match number', sha', statuses' with
+    | Error err, _, _ -> Error err
+    | _, Error err, _ -> Error err
+    | _, _, Error err -> Error err
+    | Ok number, Ok sha, Ok statuses -> Ok(PullRequest.create number sha statuses)
 
 
 module Enqueue =
@@ -303,12 +304,13 @@ module UpdatePullRequest =
     let updatePullRequestSha (load: Load) (save: Save) (command: UpdatePullRequestCommand): UpdatePullRequestResult =
         // TODO: chain validation with further processing and return errors
         let id' = PullRequestID.create command.number
-        let newValue = SHA.create command.sha
+        let newValue' = SHA.create command.sha
 
-        let id =
-            match id' with
-            | Ok id -> id
-            | Error error -> failwithf "Validation failed: %s" error
+        let id, newValue =
+            match id', newValue' with
+            | Ok id, Ok newValue -> id, newValue
+            | Error error, _ -> failwithf "Validation failed: %s" error
+            | _, Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
@@ -381,7 +383,7 @@ module UpdateStatuses =
     let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
         // TODO: chain validation with further processing and return errors
         let id' = PullRequestID.create command.number
-        let buildSha = SHA.create command.sha
+        let buildSha' = SHA.create command.sha
 
         let statuses' =
             command.statuses
@@ -390,11 +392,12 @@ module UpdateStatuses =
                 state' |> Result.map (CommitStatus.create context))
             |> consolidateResultList
 
-        let id, statuses =
-            match id', statuses' with
-            | Ok id, Ok statuses -> id, statuses
-            | Error error, _ -> failwithf "Validation failed: %s" error
-            | _, Error error -> failwithf "Validation failed: %s" error
+        let id, buildSha, statuses =
+            match id', buildSha', statuses' with
+            | Ok id, Ok buildSha, Ok statuses -> id, buildSha, statuses
+            | Error error, _, _ -> failwithf "Validation failed: %s" error
+            | _, Error error, _ -> failwithf "Validation failed: %s" error
+            | _, _, Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
