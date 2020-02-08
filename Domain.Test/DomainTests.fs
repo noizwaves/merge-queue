@@ -18,28 +18,35 @@ let private runningCircleCI = CommitStatus.create "circleci" CommitStatusState.P
 let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Success
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
-let private one = PullRequest.create (PullRequestID.create 1) (SHA.create "00001111") [ passedCircleCI ]
+let private getOrFail result =
+    match result with
+    | Ok a -> a
+    | Error b -> failwithf "Failed because: %s" b
+
+let private makePullRequestID = PullRequestID.create >> getOrFail
+
+let private one = PullRequest.create (makePullRequestID 1) (SHA.create "00001111") [ passedCircleCI ]
 
 let private oneCmd: EnqueueCommand =
     { number = 1
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
-let private two = PullRequest.create (PullRequestID.create 22) (SHA.create "00002222") [ passedCircleCI ]
+let private two = PullRequest.create (makePullRequestID 22) (SHA.create "00002222") [ passedCircleCI ]
 
 let private twoCmd: EnqueueCommand =
     { number = 22
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
 
-let private three = PullRequest.create (PullRequestID.create 333) (SHA.create "00003333") [ passedCircleCI ]
+let private three = PullRequest.create (makePullRequestID 333) (SHA.create "00003333") [ passedCircleCI ]
 
 let private threeCmd: EnqueueCommand =
     { number = 333
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
-let private four = PullRequest.create (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
+let private four = PullRequest.create (makePullRequestID 4444) (SHA.create "00004444") [ passedCircleCI ]
 
 let private fourCmd: EnqueueCommand =
     { number = 4444
@@ -147,7 +154,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
     state
     |> peekSinBin
     |> should equal
-           [ PullRequest.create (PullRequestID.create 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ] ]
+           [ PullRequest.create (makePullRequestID 1) (SHA.create "00001111") [ passedLinter; runningCircleCI ] ]
 
 [<Fact>]
 let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
@@ -283,7 +290,7 @@ let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
         runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (PullRequestID.create 1)))
+    result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (makePullRequestID 1)))
 
     state
     |> peekCurrentBatch
@@ -626,7 +633,7 @@ let ``The branch head for a running PR is updated``() =
                 { number = 1
                   sha = "10101010" })
 
-    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], PullRequestID.create 1))
+    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], makePullRequestID 1))
 
     state
     |> peekCurrentQueue
@@ -716,7 +723,7 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
                 { number = 1
                   sha = "10101010" })
 
-    let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (PullRequestID.create 1))
+    let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (makePullRequestID 1))
     result |> should equal expectedResult
 
     // Future improvement here!
@@ -756,7 +763,7 @@ let ``An updated PR with successful build status is re-enqueued at the bottom``(
     |> peekCurrentQueue
     |> should equal
            [ two
-             (PullRequest.create (PullRequestID.create 1) (SHA.create "10101010") [ passedCircleCI ]) ]
+             (PullRequest.create (makePullRequestID 1) (SHA.create "10101010") [ passedCircleCI ]) ]
 
 [<Fact>]
 let ``An updated PR with failing build status is not re-enqueued``() =

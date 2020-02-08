@@ -29,8 +29,8 @@ module PullRequestID =
     let value (PullRequestID id): int =
         id
 
-    let create (value: int): PullRequestID =
-        PullRequestID value
+    let create (value: int): Result<PullRequestID, string> =
+        Ok (PullRequestID value)
 
 module Batch =
     let toPullRequests (Batch batch): List<PullRequest> =

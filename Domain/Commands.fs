@@ -28,7 +28,10 @@ let private toPullRequestDomain (number: int) (sha: string) (statuses: List<stri
             state' |> Result.map (CommitStatus.create context))
         |> consolidateResultList
 
-    statuses' |> Result.map (PullRequest.create number' sha')
+    match number', statuses' with
+    | Error err, _ -> Error err
+    | _, Error err -> Error err
+    | Ok number, Ok statuses -> Ok(PullRequest.create number sha' statuses)
 
 
 module Enqueue =
@@ -93,8 +96,11 @@ module Dequeue =
         | NotFound
 
     let dequeue (load: Load) (save: Save) (command: DequeueCommand): DequeueResult =
-        // TODO: validation
-        let id = PullRequestID.create command.number
+        // TODO: chain validation with further processing and return errors
+        let id =
+            match PullRequestID.create command.number with
+            | Ok id -> id
+            | Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
         // TODO: Concept here, "locate pull request", multiple occurrences
@@ -140,7 +146,6 @@ module Dequeue =
 
             | false, false, false ->
                 NotFound, model
-
 
         save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
         result
@@ -296,9 +301,14 @@ module UpdatePullRequest =
         | AbortMergingBatch of List<PullRequest> * PullRequestID
 
     let updatePullRequestSha (load: Load) (save: Save) (command: UpdatePullRequestCommand): UpdatePullRequestResult =
-        // TODO: validation of inputs
-        let id = PullRequestID.create command.number
+        // TODO: chain validation with further processing and return errors
+        let id' = PullRequestID.create command.number
         let newValue = SHA.create command.sha
+
+        let id =
+            match id' with
+            | Ok id -> id
+            | Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
@@ -369,29 +379,28 @@ module UpdateStatuses =
           statuses: List<string * string> }
 
     let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
-        // TODO: perform validation here
-        let id = PullRequestID.create command.number
+        // TODO: chain validation with further processing and return errors
+        let id' = PullRequestID.create command.number
         let buildSha = SHA.create command.sha
 
-        let statuses =
+        let statuses' =
             command.statuses
             |> List.map (fun (context, state) ->
                 let state' = CommitStatusState.create state
                 state' |> Result.map (CommitStatus.create context))
             |> consolidateResultList
 
-        // TODO: chain validation with further processing and return errors
-        // TODO: consolidate validation with that in Command.Enqueue
-        let statuses' =
-            match statuses with
-            | Ok statuses -> statuses
-            | Error error -> failwithf "Validation failed: %s" error
+        let id, statuses =
+            match id', statuses' with
+            | Ok id, Ok statuses -> id, statuses
+            | Error error, _ -> failwithf "Validation failed: %s" error
+            | _, Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
-            updateStatusesInSinBin id buildSha statuses' model.queue model.sinBin
+            updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
 
         let newModel =
             { model with

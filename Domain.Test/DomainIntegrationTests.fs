@@ -16,56 +16,63 @@ let private passedCircleCI = CommitStatus.create "circleci" CommitStatusState.Su
 let private pendingCircleCI = CommitStatus.create "circleci" CommitStatusState.Pending
 let private failedCircleCI = CommitStatus.create "circleci" CommitStatusState.Failure
 
-let private one = PullRequest.create (PullRequestID.create 1111) (SHA.create "00001111") [ passedCircleCI ]
+let private getOrFail result =
+    match result with
+    | Ok a -> a
+    | Error b -> failwithf "Failed because: %s" b
+
+let private makePullRequestID = PullRequestID.create >> getOrFail
+
+let private one = PullRequest.create (makePullRequestID 1111) (SHA.create "00001111") [ passedCircleCI ]
 
 let private oneCmd: EnqueueCommand =
     { number = 1111
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
-let private two = PullRequest.create (PullRequestID.create 2222) (SHA.create "00002222") [ passedCircleCI ]
+let private two = PullRequest.create (makePullRequestID 2222) (SHA.create "00002222") [ passedCircleCI ]
 
 let private twoCmd: EnqueueCommand =
     { number = 2222
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
 
-let private three = PullRequest.create (PullRequestID.create 3333) (SHA.create "00003333") [ passedCircleCI ]
+let private three = PullRequest.create (makePullRequestID 3333) (SHA.create "00003333") [ passedCircleCI ]
 
 let private threeCmd: EnqueueCommand =
     { number = 3333
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
-let private four = PullRequest.create (PullRequestID.create 4444) (SHA.create "00004444") [ passedCircleCI ]
+let private four = PullRequest.create (makePullRequestID 4444) (SHA.create "00004444") [ passedCircleCI ]
 
 let private fourCmd: EnqueueCommand =
     { number = 4444
       sha = "00004444"
       statuses = [ "circleci", "Success" ] }
 
-let private five = PullRequest.create (PullRequestID.create 5555) (SHA.create "00005555") [ pendingCircleCI ]
+let private five = PullRequest.create (makePullRequestID 5555) (SHA.create "00005555") [ pendingCircleCI ]
 
 let private fiveCmd: EnqueueCommand =
     { number = 5555
       sha = "00005555"
       statuses = [ "circleci", "Pending" ] }
 
-let private six = PullRequest.create (PullRequestID.create 6666) (SHA.create "00006666") [ passedCircleCI ]
+let private six = PullRequest.create (makePullRequestID 6666) (SHA.create "00006666") [ passedCircleCI ]
 
 let private sixCmd: EnqueueCommand =
     { number = 6666
       sha = "00006666"
       statuses = [ "circleci", "Success" ] }
 
-let private seven = PullRequest.create (PullRequestID.create 7777) (SHA.create "00007777") [ passedCircleCI ]
+let private seven = PullRequest.create (makePullRequestID 7777) (SHA.create "00007777") [ passedCircleCI ]
 
 let private sevenCmd: EnqueueCommand =
     { number = 7777
       sha = "00007777"
       statuses = [ "circleci", "Success" ] }
 
-let private eight = PullRequest.create (PullRequestID.create 8888) (SHA.create "00008888") [ passedCircleCI ]
+let private eight = PullRequest.create (makePullRequestID 8888) (SHA.create "00008888") [ passedCircleCI ]
 
 let private eightCmd: EnqueueCommand =
     { number = 8888
@@ -148,8 +155,8 @@ let ``Realistic workflow``() =
     enqueue' sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch()
 
-    let six_v2 = PullRequest.create (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
-    let five_v2 = PullRequest.create (PullRequestID.create 5555) (SHA.create "00005555") [ failedCircleCI ]
+    let six_v2 = PullRequest.create (makePullRequestID 6666) (SHA.create "60606060") [ passedCircleCI ]
+    let five_v2 = PullRequest.create (makePullRequestID 5555) (SHA.create "00005555") [ failedCircleCI ]
 
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> peekCurrentQueue
@@ -182,8 +189,8 @@ let ``Realistic workflow``() =
     |> ignore
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
 
-    let six_v3 = PullRequest.create (PullRequestID.create 6666) (SHA.create "60606060") [ passedCircleCI ]
-    let five_v3 = PullRequest.create (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
+    let six_v3 = PullRequest.create (makePullRequestID 6666) (SHA.create "60606060") [ passedCircleCI ]
+    let five_v3 = PullRequest.create (makePullRequestID 5555) (SHA.create "50505050") [ failedCircleCI ]
 
     ``Five's branch is updated, Batch fails to build, Six's build passes``
     |> peekCurrentQueue
@@ -214,7 +221,7 @@ let ``Realistic workflow``() =
     |> ignore
     let ``Start another batch, Eight is enqueued, Five's build fails again`` = fetch()
 
-    let five_v4 = PullRequest.create (PullRequestID.create 5555) (SHA.create "50505050") [ failedCircleCI ]
+    let five_v4 = PullRequest.create (makePullRequestID 5555) (SHA.create "50505050") [ failedCircleCI ]
 
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> peekCurrentQueue
@@ -289,7 +296,7 @@ let ``Realistic workflow``() =
     |> ignore
     let ``Start another batch, Six's branch is updated during the build causing an abort`` = fetch()
 
-    let six_v4 = PullRequest.create (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]
+    let six_v4 = PullRequest.create (makePullRequestID 6666) (SHA.create "66006600") [ passedCircleCI ]
 
     ``Start another batch, Six's branch is updated during the build causing an abort``
     |> peekCurrentQueue
@@ -321,7 +328,7 @@ let ``Realistic workflow``() =
     startBatch'() |> ignore
     let ``Six's build starts then passes, start a batch`` = fetch()
 
-    let six_v5 = PullRequest.create (PullRequestID.create 6666) (SHA.create "66006600") [ passedCircleCI ]
+    let six_v5 = PullRequest.create (makePullRequestID 6666) (SHA.create "66006600") [ passedCircleCI ]
 
     ``Six's build starts then passes, start a batch``
     |> peekCurrentQueue
