@@ -20,6 +20,7 @@ let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): R
 let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
     let number' = PullRequestID.create number
     let sha' = SHA.create sha
+
     let statuses' =
         statuses
         |> List.map CommitStatus.create
@@ -41,47 +42,96 @@ module Enqueue =
           sha: string
           statuses: List<string * string> }
 
+    // higher type for workflow
     type EnqueueResult =
         | Enqueued
         | SinBinned
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
 
+    type EnqueueStepResult =
+        | Enqueued of MergeQueue
+        | SinBinned of MergeQueue
+        | RejectedFailingBuildStatus
+        | AlreadyEnqueued
+
+    type ValidatePullRequest = EnqueueCommand -> PullRequest
+
+    type LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
+
+    type EnqueueStep = PullRequest * MergeQueue -> EnqueueStepResult
+
+    type SaveMergeQueue = EnqueueStepResult -> EnqueueStepResult
+
+    type FormatEnqueueResult = EnqueueStepResult -> EnqueueResult
+
+    let private validatePullRequest: ValidatePullRequest =
+        fun command ->
+            let maybePullRequest = toPullRequestDomain command.number command.sha command.statuses
+
+            // TODO: chain validation with further processing and return errors
+            let pullRequest =
+                match maybePullRequest with
+                | Ok pullRequest -> pullRequest
+                | Error error -> failwithf "Validation failed: %s" error
+
+            pullRequest
+
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        fun pr ->
+            let model = load()
+            (pr, model)
+
+    let private enqueueStep: EnqueueStep =
+        fun (pullRequest, model) ->
+            let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
+            // TODO: Concept here, "locate pull request", multiple occurences
+            // TODO: Currently not checking to see if the pull request is currently running!
+            let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
+            let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
+            let prepared = prepareForQueue pullRequest
+
+            match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
+            | true, _, _, _ ->
+                RejectedFailingBuildStatus
+            | _, true, _, _ ->
+                AlreadyEnqueued
+            | _, _, true, _ ->
+                AlreadyEnqueued
+            | false, false, false, Choice2Of2 naughty ->
+                let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
+                SinBinned(newModel)
+            | false, false, false, Choice1Of2 passing ->
+                let newModel = { model with queue = AttemptQueue.append passing model.queue }
+                Enqueued(newModel)
+
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun result ->
+            match result with
+            | Enqueued model ->
+                save model |> ignore
+                result
+            | SinBinned model ->
+                save model |> ignore
+                result
+            | _ ->
+                result
+
+    let private formatEnqueueResult: FormatEnqueueResult =
+        fun result ->
+            match result with
+            | SinBinned _ -> EnqueueResult.SinBinned
+            | Enqueued _ -> EnqueueResult.Enqueued
+            | RejectedFailingBuildStatus -> EnqueueResult.RejectedFailingBuildStatus
+            | AlreadyEnqueued -> EnqueueResult.AlreadyEnqueued
+
     let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
-        let maybePullRequest = toPullRequestDomain command.number command.sha command.statuses
-
-        // TODO: chain validation with further processing and return errors
-        let pullRequest =
-            match maybePullRequest with
-            | Ok pullRequest -> pullRequest
-            | Error error -> failwithf "Validation failed: %s" error
-
-        // Eventually load a DTO and parse to domain object
-        let model = load()
-
-        // TODO: wrap most of the code below in a new domain method called `enqueue`
-        let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
-        // TODO: Concept here, "locate pull request", multiple occurences
-        // TODO: Currently not checking to see if the pull request is currently running!
-        let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
-        let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
-        let prepared = prepareForQueue pullRequest
-
-        match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
-        | true, _, _, _ ->
-            RejectedFailingBuildStatus
-        | _, true, _, _ ->
-            AlreadyEnqueued
-        | _, _, true, _ ->
-            AlreadyEnqueued
-        | false, false, false, Choice2Of2 naughty ->
-            let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-            save newModel
-            SinBinned
-        | false, false, false, Choice1Of2 passing ->
-            let newModel = { model with queue = AttemptQueue.append passing model.queue }
-            save newModel
-            Enqueued
+        command
+        |> validatePullRequest
+        |> loadMergeQueue load
+        |> enqueueStep
+        |> saveMergeQueue save
+        |> formatEnqueueResult
 
 module Dequeue =
     type DequeueCommand =
@@ -381,6 +431,7 @@ module UpdateStatuses =
         // TODO: chain validation with further processing and return errors
         let id' = PullRequestID.create command.number
         let buildSha' = SHA.create command.sha
+
         let statuses' =
             command.statuses
             |> List.map CommitStatus.create
