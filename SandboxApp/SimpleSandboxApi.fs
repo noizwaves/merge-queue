@@ -75,12 +75,12 @@ let enqueue (load: Load) (save: Save) id: WebPart =
 
     let response =
         match result with
-        | Ok(EnqueueSuccess.Enqueued) -> "Enqueued"
-        | Ok(EnqueueSuccess.SinBinned) -> "Sin binned"
-        | Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus) ->
+        | Ok(Success.Enqueued) -> "Enqueued"
+        | Ok(Success.SinBinned) -> "Sin binned"
+        | Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
-        | Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(EnqueueError.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -99,12 +99,12 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
     let response =
         match result with
-        | Ok(EnqueueSuccess.Enqueued) -> "Enqueued"
-        | Ok(EnqueueSuccess.SinBinned) -> "Sin binned"
-        | Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus) ->
+        | Ok(Success.Enqueued) -> "Enqueued"
+        | Ok(Success.SinBinned) -> "Sin binned"
+        | Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
-        | Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(EnqueueError.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson

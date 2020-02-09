@@ -108,7 +108,7 @@ let ``Enqueue a Pull Request``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save oneCmd)
 
-    let expected: Result<EnqueueSuccess, EnqueueError> = Ok EnqueueSuccess.Enqueued
+    let expected: Result<Success, Error> = Ok Success.Enqueued
     result |> should equal expected
 
     state
@@ -134,7 +134,7 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingCmd)
 
-    let expected: Result<EnqueueSuccess, EnqueueError> = Error(EnqueueError.EnqueueStepError RejectedFailingBuildStatus)
+    let expected: Result<Success, Error> = Error(Error.EnqueueError RejectedFailingBuildStatus)
     result |> should equal expected
 
     state |> should equal MergeQueue.empty
@@ -152,7 +152,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 
     printf "%O" result
 
-    let expected: Result<EnqueueSuccess, EnqueueError> = Ok EnqueueSuccess.SinBinned
+    let expected: Result<Success, Error> = Ok Success.SinBinned
     result |> should equal expected
 
     state
@@ -170,8 +170,8 @@ let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save noStatusesCmd)
 
-    let expected: Result<EnqueueSuccess, EnqueueError> =
-        Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus)
+    let expected: Result<Success, Error> =
+        Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus)
     result |> should equal expected
 
     state |> should equal MergeQueue.empty
@@ -187,8 +187,8 @@ let ``Enqueue an already enqueued Pull Request``() =
     let (result, state) =
         singlePrQueueState |> applyCommands (fun load save -> enqueue load save duplicateCmd)
 
-    let expected: Result<EnqueueSuccess, EnqueueError> =
-        Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued)
+    let expected: Result<Success, Error> =
+        Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)
     result |> should equal expected
 
     state
@@ -219,8 +219,8 @@ let ``Enqueue a sin binned Pull Request``() =
                   sha = "92929292"
                   statuses = [ "circleci", "Success" ] })
 
-    let expected: Result<EnqueueSuccess, EnqueueError> =
-        Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued)
+    let expected: Result<Success, Error> =
+        Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)
     result |> should equal expected
 
     state |> should equal singlePrInSinBin
@@ -233,7 +233,7 @@ let ``Enqueue multiple Pull Requests``() =
     let secondResult, secondState =
         firstState |> applyCommands (fun load save -> enqueue load save twoCmd)
 
-    let expected: Result<EnqueueSuccess, EnqueueError> = Ok EnqueueSuccess.Enqueued
+    let expected: Result<Success, Error> = Ok Success.Enqueued
     firstResult |> should equal expected
 
     secondResult |> should equal expected
