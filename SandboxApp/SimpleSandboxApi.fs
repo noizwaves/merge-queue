@@ -75,10 +75,12 @@ let enqueue (load: Load) (save: Save) id: WebPart =
 
     let response =
         match result with
-        | Enqueued -> "Enqueued"
-        | SinBinned -> "Sin binned"
-        | RejectedFailingBuildStatus -> "Rejected (failing build status)"
-        | AlreadyEnqueued -> "Already enqueued"
+        | Ok(EnqueueSuccess.Enqueued) -> "Enqueued"
+        | Ok(EnqueueSuccess.SinBinned) -> "Sin binned"
+        | Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus) ->
+            "Rejected (failing build status)"
+        | Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(EnqueueError.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -97,10 +99,12 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
     let response =
         match result with
-        | Enqueued -> "Enqueued"
-        | SinBinned -> "Sin binned"
-        | RejectedFailingBuildStatus -> "Rejected (failing build status)"
-        | AlreadyEnqueued -> "Already enqueued"
+        | Ok(EnqueueSuccess.Enqueued) -> "Enqueued"
+        | Ok(EnqueueSuccess.SinBinned) -> "Sin binned"
+        | Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus) ->
+            "Rejected (failing build status)"
+        | Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(EnqueueError.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -146,7 +150,13 @@ let finish (load: Load) (save: Save) _request: WebPart =
     let ingestBuildUpdate' = ingestBuildUpdate load save
     let ingestMergeUpdate' = ingestMergeUpdate load save
 
-    let result = ingestBuildUpdate' { message = BuildMessage.Success(SHA.create "12345678") }
+    // TODO: this is a hack as the finish command does not perform validation atm
+    let makeSha value =
+        match SHA.create value with
+        | Ok sha -> sha
+        | Error error -> failwithf "Failed to create SHA: %s" error
+
+    let result = ingestBuildUpdate' { message = BuildMessage.Success(makeSha "12345678") }
 
     let response =
         match result with

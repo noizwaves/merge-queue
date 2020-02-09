@@ -130,7 +130,9 @@ module Enqueue =
                 Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus)
             | Error(EnqueueError.EnqueueStepError(EnqueueStepError.AlreadyEnqueued)) ->
                 Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued)
-            | Error(EnqueueError.ValidationError msg) -> failwithf "Validation error: %s" msg
+            | Error(EnqueueError.ValidationError msg) ->
+                Error(EnqueueError.ValidationError msg)
+
 
     let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
         let loadMergeQueue = loadMergeQueue load
