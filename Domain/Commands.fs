@@ -32,6 +32,12 @@ let private toPullRequestDomain (number: int) (sha: string) (statuses: List<stri
     | _, _, Error err -> Error err
     | Ok number, Ok sha, Ok statuses -> Ok(PullRequest.create number sha statuses)
 
+module Common =
+    let toTwoTrackInput func =
+        fun result ->
+            match result with
+            | Ok value -> func value
+            | Error err -> Error err
 
 module Enqueue =
     // SMELL: the word Enqueue appears a lot here
@@ -42,44 +48,38 @@ module Enqueue =
           sha: string
           statuses: List<string * string> }
 
-    // higher type for workflow
-    type EnqueueResult =
-        | Enqueued
-        | SinBinned
-        | RejectedFailingBuildStatus
-        | AlreadyEnqueued
-
     type private EnqueueStepSuccess =
         | Enqueued of MergeQueue
         | SinBinned of MergeQueue
 
-    type private EnqueueStepError =
+    type EnqueueStepError =
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
 
+    type EnqueueError =
+        | ValidationError of string
+        | EnqueueStepError of EnqueueStepError
+
+    type EnqueueSuccess =
+        | Enqueued
+        | SinBinned
+
+    type EnqueueResult = Result<EnqueueSuccess, EnqueueError>
+
     type private EnqueueStatusResult = Result<EnqueueStepSuccess, EnqueueStepError>
 
-    type private ValidatePullRequest = EnqueueCommand -> PullRequest
+    type private ValidatePullRequest = EnqueueCommand -> Result<PullRequest, string>
 
     type private LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
 
     type private EnqueueStep = PullRequest * MergeQueue -> EnqueueStatusResult
 
-    type private SaveMergeQueue = EnqueueStatusResult -> EnqueueStatusResult
+    type private SaveMergeQueue = EnqueueStepSuccess -> EnqueueStepSuccess
 
-    type private FormatEnqueueResult = EnqueueStatusResult -> EnqueueResult
+    type private FormatEnqueueResult = Result<EnqueueStepSuccess, EnqueueError> -> EnqueueResult
 
     let private validatePullRequest: ValidatePullRequest =
-        fun command ->
-            let maybePullRequest = toPullRequestDomain command.number command.sha command.statuses
-
-            // TODO: chain validation with further processing and return errors
-            let pullRequest =
-                match maybePullRequest with
-                | Ok pullRequest -> pullRequest
-                | Error error -> failwithf "Validation failed: %s" error
-
-            pullRequest
+        fun command -> toPullRequestDomain command.number command.sha command.statuses
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun pr ->
@@ -104,41 +104,47 @@ module Enqueue =
                 Error AlreadyEnqueued
             | false, false, false, Choice2Of2 naughty ->
                 let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-                Ok(SinBinned(newModel))
+                Ok(EnqueueStepSuccess.SinBinned(newModel))
             | false, false, false, Choice1Of2 passing ->
                 let newModel = { model with queue = AttemptQueue.append passing model.queue }
-                Ok(Enqueued(newModel))
+                Ok(EnqueueStepSuccess.Enqueued(newModel))
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
         fun result ->
             match result with
-            | Ok(Enqueued model) ->
+            | EnqueueStepSuccess.Enqueued model ->
                 save model |> ignore
                 result
-            | Ok(SinBinned model) ->
+            | EnqueueStepSuccess.SinBinned model ->
                 save model |> ignore
-                result
-            | _ ->
                 result
 
-    let private formatEnqueueResult: FormatEnqueueResult =
+    let private toEnqueueResult: FormatEnqueueResult =
         fun result ->
             match result with
-            | Ok(SinBinned _) -> EnqueueResult.SinBinned
-            | Ok(Enqueued _) -> EnqueueResult.Enqueued
-            | Error RejectedFailingBuildStatus -> EnqueueResult.RejectedFailingBuildStatus
-            | Error AlreadyEnqueued -> EnqueueResult.AlreadyEnqueued
+            | Ok(EnqueueStepSuccess.SinBinned _) ->
+                Ok(EnqueueSuccess.SinBinned)
+            | Ok(EnqueueStepSuccess.Enqueued _) ->
+                Ok(EnqueueSuccess.Enqueued)
+            | Error(EnqueueError.EnqueueStepError(EnqueueStepError.RejectedFailingBuildStatus)) ->
+                Error(EnqueueError.EnqueueStepError EnqueueStepError.RejectedFailingBuildStatus)
+            | Error(EnqueueError.EnqueueStepError(EnqueueStepError.AlreadyEnqueued)) ->
+                Error(EnqueueError.EnqueueStepError EnqueueStepError.AlreadyEnqueued)
+            | Error(EnqueueError.ValidationError msg) -> failwithf "Validation error: %s" msg
 
     let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
         let loadMergeQueue = loadMergeQueue load
         let saveMergeQueue = saveMergeQueue save
 
+        let validatePullRequest = validatePullRequest >> (Result.mapError EnqueueError.ValidationError)
+        let enqueueStep = enqueueStep >> (Result.mapError EnqueueError.EnqueueStepError)
+
         command
         |> validatePullRequest
-        |> loadMergeQueue
-        |> enqueueStep
-        |> saveMergeQueue
-        |> formatEnqueueResult
+        |> Result.map loadMergeQueue
+        |> Common.toTwoTrackInput enqueueStep
+        |> Result.map saveMergeQueue
+        |> toEnqueueResult
 
 module Dequeue =
     type DequeueCommand =
