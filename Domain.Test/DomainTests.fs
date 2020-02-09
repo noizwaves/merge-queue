@@ -30,28 +30,28 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 
 let private one = PullRequest.create (makePullRequestID 1) (makeSha "00001111") [ passedCircleCI ]
 
-let private oneCmd: EnqueueCommand =
+let private oneCmd: Command =
     { number = 1
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
 let private two = PullRequest.create (makePullRequestID 22) (makeSha "00002222") [ passedCircleCI ]
 
-let private twoCmd: EnqueueCommand =
+let private twoCmd: Command =
     { number = 22
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
 
 let private three = PullRequest.create (makePullRequestID 333) (makeSha "00003333") [ passedCircleCI ]
 
-let private threeCmd: EnqueueCommand =
+let private threeCmd: Command =
     { number = 333
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
-let private fourCmd: EnqueueCommand =
+let private fourCmd: Command =
     { number = 4444
       sha = "00004444"
       statuses = [ "circleci", "Success" ] }

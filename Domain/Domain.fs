@@ -20,7 +20,9 @@ module CommitStatus =
     let create (context: string, state: string): Result<CommitStatus, string> =
         state
         |> CommitStatusState.create
-        |> Result.map (fun s -> { context = context; state = s })
+        |> Result.map (fun s ->
+            { context = context
+              state = s })
 
 module SHA =
     let create (value: string): Result<SHA, string> =
@@ -332,6 +334,36 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
     | Some b -> b :: fromQueue
     | None -> fromQueue
 
+// "Domain services"
+type EnqueueSuccess =
+    | Enqueued of MergeQueue
+    | SinBinned of MergeQueue
+
+type EnqueueError =
+    | RejectedFailingBuildStatus
+    | AlreadyEnqueued
+
+let enqueue (pullRequest: PullRequest) (model: MergeQueue): Result<EnqueueSuccess, EnqueueError> =
+    let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
+    // TODO: Concept here, "locate pull request", multiple occurrences
+    // TODO: Currently not checking to see if the pull request is currently running!
+    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
+    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
+    let prepared = prepareForQueue pullRequest
+
+    match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
+    | true, _, _, _ ->
+        Error RejectedFailingBuildStatus
+    | _, true, _, _ ->
+        Error AlreadyEnqueued
+    | _, _, true, _ ->
+        Error AlreadyEnqueued
+    | false, false, false, Choice2Of2 naughty ->
+        let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
+        Ok(EnqueueSuccess.SinBinned(newModel))
+    | false, false, false, Choice1Of2 passing ->
+        let newModel = { model with queue = AttemptQueue.append passing model.queue }
+        Ok(EnqueueSuccess.Enqueued(newModel))
 
 // "Properties"
 

@@ -51,18 +51,10 @@ module Enqueue =
     // SMELL: the word Enqueue appears a lot here
 
     // SMELL: domain object should be build within command and not an argument, accept arguments
-    type EnqueueCommand =
+    type Command =
         { number: int
           sha: string
           statuses: List<string * string> }
-
-    type private EnqueueSuccess =
-        | Enqueued of MergeQueue
-        | SinBinned of MergeQueue
-
-    type EnqueueError =
-        | RejectedFailingBuildStatus
-        | AlreadyEnqueued
 
     type Error =
         | ValidationError of string
@@ -74,7 +66,7 @@ module Enqueue =
 
     type EnqueueResult = Result<Success, Error>
 
-    type private ValidatePullRequest = EnqueueCommand -> Result<PullRequest, string>
+    type private ValidatePullRequest = Command -> Result<PullRequest, string>
 
     let private validatePullRequest: ValidatePullRequest =
         fun command -> toPullRequestDomain command.number command.sha command.statuses
@@ -89,27 +81,7 @@ module Enqueue =
     type private EnqueueStep = PullRequest * MergeQueue -> Result<EnqueueSuccess, EnqueueError>
 
     let private enqueueStep: EnqueueStep =
-        fun (pullRequest, model) ->
-            let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
-            // TODO: Concept here, "locate pull request", multiple occurences
-            // TODO: Currently not checking to see if the pull request is currently running!
-            let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
-            let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
-            let prepared = prepareForQueue pullRequest
-
-            match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
-            | true, _, _, _ ->
-                Error RejectedFailingBuildStatus
-            | _, true, _, _ ->
-                Error AlreadyEnqueued
-            | _, _, true, _ ->
-                Error AlreadyEnqueued
-            | false, false, false, Choice2Of2 naughty ->
-                let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-                Ok(EnqueueSuccess.SinBinned(newModel))
-            | false, false, false, Choice1Of2 passing ->
-                let newModel = { model with queue = AttemptQueue.append passing model.queue }
-                Ok(EnqueueSuccess.Enqueued(newModel))
+        fun (pullRequest, model) -> Domain.enqueue pullRequest model
 
     type private SaveMergeQueue = EnqueueSuccess -> unit
 
@@ -128,7 +100,7 @@ module Enqueue =
         | EnqueueSuccess.Enqueued _ ->
             Success.Enqueued
 
-    let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
+    let enqueue (load: Load) (save: Save) (command: Command): EnqueueResult =
         let loadMergeQueue = loadMergeQueue load
         let saveMergeQueue = saveMergeQueue save
 
