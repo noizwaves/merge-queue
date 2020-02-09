@@ -49,21 +49,25 @@ module Enqueue =
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
 
-    type EnqueueStepResult =
+    type private EnqueueStepSuccess =
         | Enqueued of MergeQueue
         | SinBinned of MergeQueue
+
+    type private EnqueueStepError =
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
 
-    type ValidatePullRequest = EnqueueCommand -> PullRequest
+    type private EnqueueStatusResult = Result<EnqueueStepSuccess, EnqueueStepError>
 
-    type LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
+    type private ValidatePullRequest = EnqueueCommand -> PullRequest
 
-    type EnqueueStep = PullRequest * MergeQueue -> EnqueueStepResult
+    type private LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
 
-    type SaveMergeQueue = EnqueueStepResult -> EnqueueStepResult
+    type private EnqueueStep = PullRequest * MergeQueue -> EnqueueStatusResult
 
-    type FormatEnqueueResult = EnqueueStepResult -> EnqueueResult
+    type private SaveMergeQueue = EnqueueStatusResult -> EnqueueStatusResult
+
+    type private FormatEnqueueResult = EnqueueStatusResult -> EnqueueResult
 
     let private validatePullRequest: ValidatePullRequest =
         fun command ->
@@ -93,25 +97,25 @@ module Enqueue =
 
             match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with
             | true, _, _, _ ->
-                RejectedFailingBuildStatus
+                Error RejectedFailingBuildStatus
             | _, true, _, _ ->
-                AlreadyEnqueued
+                Error AlreadyEnqueued
             | _, _, true, _ ->
-                AlreadyEnqueued
+                Error AlreadyEnqueued
             | false, false, false, Choice2Of2 naughty ->
                 let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-                SinBinned(newModel)
+                Ok(SinBinned(newModel))
             | false, false, false, Choice1Of2 passing ->
                 let newModel = { model with queue = AttemptQueue.append passing model.queue }
-                Enqueued(newModel)
+                Ok(Enqueued(newModel))
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
         fun result ->
             match result with
-            | Enqueued model ->
+            | Ok(Enqueued model) ->
                 save model |> ignore
                 result
-            | SinBinned model ->
+            | Ok(SinBinned model) ->
                 save model |> ignore
                 result
             | _ ->
@@ -120,17 +124,20 @@ module Enqueue =
     let private formatEnqueueResult: FormatEnqueueResult =
         fun result ->
             match result with
-            | SinBinned _ -> EnqueueResult.SinBinned
-            | Enqueued _ -> EnqueueResult.Enqueued
-            | RejectedFailingBuildStatus -> EnqueueResult.RejectedFailingBuildStatus
-            | AlreadyEnqueued -> EnqueueResult.AlreadyEnqueued
+            | Ok(SinBinned _) -> EnqueueResult.SinBinned
+            | Ok(Enqueued _) -> EnqueueResult.Enqueued
+            | Error RejectedFailingBuildStatus -> EnqueueResult.RejectedFailingBuildStatus
+            | Error AlreadyEnqueued -> EnqueueResult.AlreadyEnqueued
 
     let enqueue (load: Load) (save: Save) (command: EnqueueCommand): EnqueueResult =
+        let loadMergeQueue = loadMergeQueue load
+        let saveMergeQueue = saveMergeQueue save
+
         command
         |> validatePullRequest
-        |> loadMergeQueue load
+        |> loadMergeQueue
         |> enqueueStep
-        |> saveMergeQueue save
+        |> saveMergeQueue
         |> formatEnqueueResult
 
 module Dequeue =
