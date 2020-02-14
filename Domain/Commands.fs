@@ -16,7 +16,7 @@ let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): R
         |> Result.map (fun aa -> a :: aa)
 
 // TODO: tidy this up with computation expressions and composition
-// TODO: move to somewhere not the Command module?
+// TODO: could this be inlined to Enqueue module?
 let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
     let number' = PullRequestID.create number
     let sha' = SHA.create sha
@@ -48,9 +48,7 @@ module Common =
         fun value -> func value |> Ok
 
 module Enqueue =
-    // SMELL: the word Enqueue appears a lot here
-
-    // SMELL: domain object should be build within command and not an argument, accept arguments
+    // Types
     type Command =
         { number: int
           sha: string
@@ -66,11 +64,17 @@ module Enqueue =
 
     type EnqueueResult = Result<Success, Error>
 
+    type EnqueueWorkflow = Command -> EnqueueResult
+
+    // Implementation
+
+    /// Validation
     type private ValidatePullRequest = Command -> Result<PullRequest, string>
 
     let private validatePullRequest: ValidatePullRequest =
         fun command -> toPullRequestDomain command.number command.sha command.statuses
 
+    /// Loading the MergeQueue
     type private LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
@@ -78,11 +82,13 @@ module Enqueue =
             let model = load()
             (pr, model)
 
+    /// Enqueue step
     type private EnqueueStep = PullRequest * MergeQueue -> Result<EnqueueSuccess, EnqueueError>
 
     let private enqueueStep: EnqueueStep =
         fun (pullRequest, model) -> Domain.enqueue pullRequest model
 
+    /// Save changes to the MergeQueue
     type private SaveMergeQueue = EnqueueSuccess -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
@@ -93,6 +99,7 @@ module Enqueue =
             | EnqueueSuccess.SinBinned model ->
                 save model
 
+    /// Convert the domain result to a workflow result
     let private toSuccess (value: EnqueueSuccess): Success =
         match value with
         | EnqueueSuccess.SinBinned _ ->
@@ -100,19 +107,21 @@ module Enqueue =
         | EnqueueSuccess.Enqueued _ ->
             Success.Enqueued
 
-    let enqueue (load: Load) (save: Save) (command: Command): EnqueueResult =
+    // the final workflow
+    let enqueue (load: Load) (save: Save): EnqueueWorkflow =
         let loadMergeQueue = loadMergeQueue load
         let saveMergeQueue = saveMergeQueue save
 
         let validatePullRequest = validatePullRequest >> (Result.mapError Error.ValidationError)
         let enqueueStep = enqueueStep >> (Result.mapError Error.EnqueueError)
 
-        command
-        |> validatePullRequest
-        |> Result.map loadMergeQueue
-        |> Common.apply enqueueStep
-        |> Result.map (Common.tee saveMergeQueue)
-        |> Result.map toSuccess
+        fun command ->
+            command
+            |> validatePullRequest
+            |> Result.map loadMergeQueue
+            |> Common.apply enqueueStep
+            |> Result.map (Common.tee saveMergeQueue)
+            |> Result.map toSuccess
 
 module Dequeue =
     type DequeueCommand =

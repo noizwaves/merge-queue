@@ -66,6 +66,7 @@ let view (load: Load) _request: WebPart =
 let enqueue (load: Load) (save: Save) id: WebPart =
     let enqueue' = enqueue load save
 
+    // TODO: Turn the imperative expressions into a >=> pipe
     let cmd =
         { number = id
           sha = "00001234"
