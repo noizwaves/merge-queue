@@ -20,7 +20,7 @@ let private toJson v =
     JsonConvert.SerializeObject(v, jsonSerializerSettings)
 
 type PullRequestDTO =
-    { id: int }
+    { number: int }
 
 type BatchDTO = List<PullRequestDTO>
 
@@ -37,12 +37,12 @@ let view (load: Load) _request: WebPart =
     let sinBin =
         state
         |> peekSinBin
-        |> List.map (fun pr -> { id = PullRequestID.value pr.id })
+        |> List.map (fun pr -> { number = pr.number |> PullRequestNumber.value })
 
     let current =
         state
         |> peekCurrentBatch
-        |> Option.map (fun batch -> batch |> List.map (fun pr -> { id = PullRequestID.value pr.id }))
+        |> Option.map (fun batch -> batch |> List.map (fun pr -> { number = pr.number |> PullRequestNumber.value }))
 
     let plan =
         state
@@ -50,8 +50,7 @@ let view (load: Load) _request: WebPart =
         |> List.map (fun batch ->
             batch
             |> PlannedBatch.toPullRequestIds
-            |> List.map PullRequestID.value
-            |> List.map (fun id -> { id = id }))
+            |> List.map (fun number -> { number = number |> PullRequestNumber.value }))
 
     let dto =
         { sinBin = sinBin
@@ -114,7 +113,7 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
 let dequeue (load: Load) (save: Save) id: WebPart =
     let dequeue' = dequeue load save
-    let cmd = { number = id }
+    let cmd: DequeueCommand = { number = id }
 
     let result = dequeue' cmd
 

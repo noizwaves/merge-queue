@@ -18,7 +18,7 @@ let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): R
 // TODO: tidy this up with computation expressions and composition
 // TODO: could this be inlined to Enqueue module?
 let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
-    let number' = PullRequestID.create number
+    let number' = PullRequestNumber.create number
     let sha' = SHA.create sha
 
     let statuses' =
@@ -129,22 +129,22 @@ module Dequeue =
 
     type DequeueResult =
         | Dequeued
-        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestID
+        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
         | RejectedInMergingBatch
         | NotFound
 
     let dequeue (load: Load) (save: Save) (command: DequeueCommand): DequeueResult =
         // TODO: chain validation with further processing and return errors
-        let id =
-            match PullRequestID.create command.number with
-            | Ok id -> id
+        let number =
+            match PullRequestNumber.create command.number with
+            | Ok number -> number
             | Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
         // TODO: Concept here, "locate pull request", multiple occurrences
-        let isCurrent = model.activeBatch |> ActiveBatch.contains id
-        let isEnqueued = model.queue |> AttemptQueue.contains id
-        let isSinBinned = model.sinBin |> SinBin.contains id
+        let isCurrent = model.activeBatch |> ActiveBatch.contains number
+        let isEnqueued = model.queue |> AttemptQueue.contains number
+        let isSinBinned = model.sinBin |> SinBin.contains number
 
         let result, newModel =
             match isCurrent, isEnqueued, isSinBinned with
@@ -154,12 +154,12 @@ module Dequeue =
                     let newQueue =
                         model.queue
                         |> AttemptQueue.prepend batch
-                        |> AttemptQueue.removeById id
+                        |> AttemptQueue.removeByNumber number
 
                     let newBatch = NoBatch
 
                     let pullRequests = batch |> Batch.toPullRequests
-                    let result = DequeuedAndAbortRunningBatch(pullRequests, id)
+                    let result = DequeuedAndAbortRunningBatch(pullRequests, number)
 
                     let newModel =
                         { model with
@@ -175,11 +175,11 @@ module Dequeue =
                     failwith "PullRequest cannot be in an empty batch"
 
             | _, true, _ ->
-                let newQueue = model.queue |> AttemptQueue.removeById id
+                let newQueue = model.queue |> AttemptQueue.removeByNumber number
                 Dequeued, { model with queue = newQueue }
 
             | _, _, true ->
-                let newSinBin = model.sinBin |> SinBin.removeById id
+                let newSinBin = model.sinBin |> SinBin.removeByNumber number
                 Dequeued, { model with sinBin = newSinBin }
 
             | false, false, false ->
@@ -335,29 +335,29 @@ module UpdatePullRequest =
 
     type UpdatePullRequestResult =
         | NoOp
-        | AbortRunningBatch of List<PullRequest> * PullRequestID
-        | AbortMergingBatch of List<PullRequest> * PullRequestID
+        | AbortRunningBatch of List<PullRequest> * PullRequestNumber
+        | AbortMergingBatch of List<PullRequest> * PullRequestNumber
 
     let updatePullRequestSha (load: Load) (save: Save) (command: UpdatePullRequestCommand): UpdatePullRequestResult =
         // TODO: chain validation with further processing and return errors
-        let id' = PullRequestID.create command.number
-        let newValue' = SHA.create command.sha
+        let number' = PullRequestNumber.create command.number
+        let newSha' = SHA.create command.sha
 
-        let id, newValue =
-            match id', newValue' with
-            | Ok id, Ok newValue -> id, newValue
+        let number, newSha =
+            match number', newSha' with
+            | Ok number, Ok newValue -> number, newValue
             | Error error, _ -> failwithf "Validation failed: %s" error
             | _, Error error -> failwithf "Validation failed: %s" error
 
         let model = load()
 
-        let newSinBin = model.sinBin |> updateShaInSinBin id newValue
+        let newSinBin = model.sinBin |> updateShaInSinBin number newSha
         let modelWithNewSinBin = { model with sinBin = newSinBin }
 
         match modelWithNewSinBin.activeBatch with
         | Running batch ->
             let abortRunningBatch, newQueue, newSinBin =
-                updateShaInRunningBatch id newValue batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+                updateShaInRunningBatch number newSha batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             if abortRunningBatch then
                 let newModel =
@@ -368,7 +368,7 @@ module UpdatePullRequest =
                 save newModel
 
                 let pullRequests = batch |> RunnableBatch.toPullRequests
-                AbortRunningBatch(pullRequests, id)
+                AbortRunningBatch(pullRequests, number)
 
             else
                 let newModel =
@@ -379,7 +379,7 @@ module UpdatePullRequest =
                 NoOp
         | NoBatch ->
             let newQueue, newSinBin =
-                updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+                updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
             let newModel =
                 { modelWithNewSinBin with
@@ -389,7 +389,7 @@ module UpdatePullRequest =
             NoOp
 
         | Merging batch ->
-            let inMergingBatch = batch |> MergeableBatch.contains id
+            let inMergingBatch = batch |> MergeableBatch.contains number
 
             if inMergingBatch then
                 let newModel =
@@ -397,10 +397,10 @@ module UpdatePullRequest =
                 save newModel
 
                 let pullRequests = batch |> MergeableBatch.toPullRequests
-                AbortMergingBatch(pullRequests, id)
+                AbortMergingBatch(pullRequests, number)
             else
                 let newQueue, newSinBin =
-                    updateShaInQueue id newValue modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+                    updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
                 let newModel =
                     { modelWithNewSinBin with
@@ -419,7 +419,7 @@ module UpdateStatuses =
 
     let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
         // TODO: chain validation with further processing and return errors
-        let id' = PullRequestID.create command.number
+        let number' = PullRequestNumber.create command.number
         let buildSha' = SHA.create command.sha
 
         let statuses' =
@@ -427,9 +427,9 @@ module UpdateStatuses =
             |> List.map CommitStatus.create
             |> consolidateResultList
 
-        let id, buildSha, statuses =
-            match id', buildSha', statuses' with
-            | Ok id, Ok buildSha, Ok statuses -> id, buildSha, statuses
+        let number, buildSha, statuses =
+            match number', buildSha', statuses' with
+            | Ok number, Ok buildSha, Ok statuses -> number, buildSha, statuses
             | Error error, _, _ -> failwithf "Validation failed: %s" error
             | _, Error error, _ -> failwithf "Validation failed: %s" error
             | _, _, Error error -> failwithf "Validation failed: %s" error
@@ -438,7 +438,7 @@ module UpdateStatuses =
 
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
-            updateStatusesInSinBin id buildSha statuses model.queue model.sinBin
+            updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
 
         let newModel =
             { model with

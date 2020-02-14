@@ -18,7 +18,7 @@ let private getOrFail result =
     | Ok a -> a
     | Error b -> failwithf "Failed because: %s" b
 
-let private makePullRequestID = PullRequestID.create >> getOrFail
+let private makePullRequestID = PullRequestNumber.create >> getOrFail
 let private makeSha = SHA.create >> getOrFail
 let private makeCommitStatus = CommitStatus.create >> getOrFail
 
@@ -119,7 +119,7 @@ let ``Realistic workflow``() =
 
     ``Four enqueued but not started``
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ one.id; two.id; three.id; four.id ] ]
+    |> should equal [ PlannedBatch [ one.number; two.number; three.number; four.number ] ]
 
     // 2. First batch running some additional enqueued
     startBatch'() |> ignore
@@ -142,8 +142,8 @@ let ``Realistic workflow``() =
     ``First batch running some additional enqueued``
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id; three.id; four.id ]
-             PlannedBatch [ six.id ] ]
+           [ PlannedBatch [ one.number; two.number; three.number; four.number ]
+             PlannedBatch [ six.number ] ]
 
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
     updateStatuses'
@@ -176,8 +176,8 @@ let ``Realistic workflow``() =
     ``Five fails to build, Six's branch is updated, batch continues to build``
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id; three.id; four.id ]
-             PlannedBatch [ seven.id ] ]
+           [ PlannedBatch [ one.number; two.number; three.number; four.number ]
+             PlannedBatch [ seven.number ] ]
 
     // 4. Five's branch is updated, Batch fails to build, Six's build passes
     updatePullRequestSha'
@@ -210,9 +210,9 @@ let ``Realistic workflow``() =
     ``Five's branch is updated, Batch fails to build, Six's build passes``
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id ]
-             PlannedBatch [ three.id; four.id ]
-             PlannedBatch [ seven.id; six.id ] ]
+           [ PlannedBatch [ one.number; two.number ]
+             PlannedBatch [ three.number; four.number ]
+             PlannedBatch [ seven.number; six.number ] ]
 
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     startBatch'() |> ignore
@@ -241,9 +241,9 @@ let ``Realistic workflow``() =
     ``Start another batch, Eight is enqueued, Five's build fails again``
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id ]
-             PlannedBatch [ three.id; four.id ]
-             PlannedBatch [ seven.id; six.id; eight.id ] ]
+           [ PlannedBatch [ one.number; two.number ]
+             PlannedBatch [ three.number; four.number ]
+             PlannedBatch [ seven.number; six.number; eight.number ] ]
 
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
     dequeue' { number = 5555 } |> ignore
@@ -267,8 +267,8 @@ let ``Realistic workflow``() =
     ``Five is dequeued, Three is dequeued, The batch builds and merges successfully``
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ four.id ]
-             PlannedBatch [ seven.id; six.id; eight.id ] ]
+           [ PlannedBatch [ four.number ]
+             PlannedBatch [ seven.number; six.number; eight.number ] ]
 
     // 7. Start a batch and it fails
     startBatch'() |> ignore
@@ -289,7 +289,7 @@ let ``Realistic workflow``() =
 
     ``Start a batch and it fails``
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ seven.id; six.id; eight.id ] ]
+    |> should equal [ PlannedBatch [ seven.number; six.number; eight.number ] ]
 
     // 8. Start another batch, Six's branch is updated during the build causing an abort
     startBatch'() |> ignore
@@ -315,7 +315,7 @@ let ``Realistic workflow``() =
 
     ``Start another batch, Six's branch is updated during the build causing an abort``
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ seven.id; eight.id ] ]
+    |> should equal [ PlannedBatch [ seven.number; eight.number ] ]
 
     // 9. Six's build starts then passes, start a batch
     updateStatuses'
@@ -347,7 +347,7 @@ let ``Realistic workflow``() =
 
     ``Six's build starts then passes, start a batch``
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ seven.id; eight.id; six.id ] ]
+    |> should equal [ PlannedBatch [ seven.number; eight.number; six.number ] ]
 
     // 10. Batch builds and merges successfully
     ingestBuildUpdate' { message = (BuildMessage.Success(makeSha "76800000")) } |> ignore

@@ -3,8 +3,8 @@
 open MergeQueue.DomainTypes
 
 module PullRequest =
-    let create (id: PullRequestID) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =
-        { id = id
+    let create (number: PullRequestNumber) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =
+        { number = number
           sha = branchHead
           statuses = commitStatuses }
 
@@ -28,22 +28,22 @@ module SHA =
     let create (value: string): Result<SHA, string> =
         Ok(SHA value)
 
-module PullRequestID =
-    let value (PullRequestID id): int =
+module PullRequestNumber =
+    let value (PullRequestNumber id): int =
         id
 
-    let create (value: int): Result<PullRequestID, string> =
-        Ok(PullRequestID value)
+    let create (value: int): Result<PullRequestNumber, string> =
+        Ok(PullRequestNumber value)
 
 module Batch =
     let toPullRequests (Batch batch): List<PullRequest> =
         batch |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
-    let contains (id: PullRequestID) (batch: Batch): bool =
+    let contains (number: PullRequestNumber) (batch: Batch): bool =
         batch
         |> toPullRequests
-        |> List.map (fun pr -> pr.id)
-        |> List.contains id
+        |> List.map (fun pr -> pr.number)
+        |> List.contains number
 
     let length (Batch batch): int =
         List.length batch
@@ -55,15 +55,15 @@ module RunnableBatch =
     let toPullRequests (RunnableBatch batch): List<PullRequest> =
         Batch.toPullRequests batch
 
-    let contains (id: PullRequestID) (RunnableBatch batch): bool =
-        batch |> Batch.contains id
+    let contains (number: PullRequestNumber) (RunnableBatch batch): bool =
+        batch |> Batch.contains number
 
 module MergeableBatch =
     let toPullRequests (MergeableBatch batch): List<PullRequest> =
         Batch.toPullRequests batch
 
-    let contains (id: PullRequestID) (MergeableBatch batch): bool =
-        batch |> Batch.contains id
+    let contains (number: PullRequestNumber) (MergeableBatch batch): bool =
+        batch |> Batch.contains number
 
 module BisectedBatch =
     // SMELL: kinda stinky, such unwrapping
@@ -83,10 +83,10 @@ module AttemptQueue =
     let prepend (Batch batch) (AttemptQueue queue): AttemptQueue =
         batch @ queue |> AttemptQueue
 
-    let contains (id: PullRequestID) (AttemptQueue queue): bool =
+    let contains (number: PullRequestNumber) (AttemptQueue queue): bool =
         queue
-        |> List.map (fun ((PassingPullRequest pr), _) -> pr.id)
-        |> List.contains id
+        |> List.map (fun ((PassingPullRequest pr), _) -> pr.number)
+        |> List.contains number
 
     let tryFind predicate (AttemptQueue queue) =
         queue |> List.tryFind predicate
@@ -94,9 +94,9 @@ module AttemptQueue =
     let toPullRequests (AttemptQueue queue): List<PullRequest> =
         queue |> List.map (fun ((PassingPullRequest pr), _) -> pr)
 
-    let removeById (id: PullRequestID) (AttemptQueue queue): AttemptQueue =
+    let removeByNumber (number: PullRequestNumber) (AttemptQueue queue): AttemptQueue =
         queue
-        |> List.filter (fun ((PassingPullRequest pr), _) -> pr.id <> id)
+        |> List.filter (fun ((PassingPullRequest pr), _) -> pr.number <> number)
         |> AttemptQueue
 
 module SinBin =
@@ -109,17 +109,17 @@ module SinBin =
     let tryFind predicate (SinBin sinBin) =
         sinBin |> List.tryFind predicate
 
-    let contains (id: PullRequestID) (SinBin sinBin): bool =
+    let contains (number: PullRequestNumber) (SinBin sinBin): bool =
         sinBin
-        |> List.map (fun (NaughtyPullRequest pr) -> pr.id)
-        |> List.contains id
+        |> List.map (fun (NaughtyPullRequest pr) -> pr.number)
+        |> List.contains number
 
     let toPullRequests (SinBin sinBin): List<PullRequest> =
         sinBin |> List.map (fun (NaughtyPullRequest pr) -> pr)
 
-    let removeById (id: PullRequestID) (SinBin sinBin): SinBin =
+    let removeByNumber (number: PullRequestNumber) (SinBin sinBin): SinBin =
         sinBin
-        |> List.filter (fun (NaughtyPullRequest pr) -> pr.id <> id)
+        |> List.filter (fun (NaughtyPullRequest pr) -> pr.number <> number)
         |> SinBin
 
 module ActiveBatch =
@@ -136,20 +136,20 @@ module ActiveBatch =
             |> MergeableBatch.toPullRequests
             |> Some
 
-    let toPullRequestIds (batch: ActiveBatch): Option<List<PullRequestID>> =
+    let toPullRequestIds (batch: ActiveBatch): Option<List<PullRequestNumber>> =
         batch
         |> toPullRequests
-        |> Option.map (List.map (fun pr -> pr.id))
+        |> Option.map (List.map (fun pr -> pr.number))
 
     let toPlanned (batch: ActiveBatch): Option<PlannedBatch> =
         batch
         |> toPullRequestIds
         |> Option.map (fun ids -> PlannedBatch ids)
 
-    let contains (id: PullRequestID) (batch: ActiveBatch): bool =
+    let contains (number: PullRequestNumber) (batch: ActiveBatch): bool =
         batch
         |> toPullRequestIds
-        |> Option.map (List.contains id)
+        |> Option.map (List.contains number)
         |> Option.defaultValue false
 
 module MergeQueue =
@@ -159,7 +159,7 @@ module MergeQueue =
           activeBatch = NoBatch }
 
 module PlannedBatch =
-    let toPullRequestIds (PlannedBatch ids): List<PullRequestID> =
+    let toPullRequestIds (PlannedBatch ids): List<PullRequestNumber> =
         ids
 
 // Domain Logic
@@ -227,11 +227,11 @@ let failMerge (existing: AttemptQueue) (MergeableBatch batch): AttemptQueue * Ac
     AttemptQueue.prepend batch existing, NoBatch
 
 // SMELL: these were private before command split, are they real domain methods?
-let updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
+let updateShaInQueue (number: PullRequestNumber) (newValue: SHA) (queue: AttemptQueue) (sinBin: SinBin): AttemptQueue * SinBin =
     // get PR (and update SHA)
     let updatedPr =
         queue
-        |> AttemptQueue.tryFind (fun ((PassingPullRequest pr), _) -> pr.id = id)
+        |> AttemptQueue.tryFind (fun ((PassingPullRequest pr), _) -> pr.number = number)
         // TODO: a sha update should always clear the commit statuses, always making it a NaughtyPullRequest
         |> Option.map (fun ((PassingPullRequest pr), _) -> { pr with sha = newValue })
         |> Option.map NaughtyPullRequest
@@ -247,54 +247,54 @@ let updateShaInQueue (id: PullRequestID) (newValue: SHA) (queue: AttemptQueue) (
         | Some item -> sinBin |> SinBin.append item
 
     // from the queue
-    let newQueue = queue |> AttemptQueue.removeById id
+    let newQueue = queue |> AttemptQueue.removeByNumber number
 
     newQueue, newSinBin
 
 // SMELL: these were private before command split, are they real domain methods?
-let updateShaInSinBin (id: PullRequestID) (newValue: SHA) (SinBin sinBin): SinBin =
+let updateShaInSinBin (number: PullRequestNumber) (newValue: SHA) (SinBin sinBin): SinBin =
     // TODO: a sha update should always clear the commit statuses
     sinBin
     |> List.map (fun (NaughtyPullRequest pr) ->
-        if pr.id = id then NaughtyPullRequest { pr with sha = newValue }
+        if pr.number = number then NaughtyPullRequest { pr with sha = newValue }
         else NaughtyPullRequest pr)
     |> SinBin
 
 // SMELL: these signatures are huge! Why?
 // SMELL: these were private before command split, are they real domain methods?
-let updateShaInRunningBatch (id: PullRequestID) (newValue: SHA) (RunnableBatch batch) (queue: AttemptQueue)
+let updateShaInRunningBatch (number: PullRequestNumber) (newValue: SHA) (RunnableBatch batch) (queue: AttemptQueue)
     (sinBin: SinBin): bool * AttemptQueue * SinBin =
-    let inRunningBatch = batch |> Batch.contains id
+    let inRunningBatch = batch |> Batch.contains number
 
     if inRunningBatch then
         // TODO: moving PRs back to queue should coincide with changing the CurrentBatch
         // ... it's not obvious that updateSha.. will move PRs into the queue
         // TODO: also, consider adding RunnableBatch.updateSha -> Batch
         let newQueue, newSinBin =
-            updateShaInQueue id newValue (AttemptQueue.prepend batch queue) sinBin
+            updateShaInQueue number newValue (AttemptQueue.prepend batch queue) sinBin
 
         true, newQueue, newSinBin
 
     else
         let newQueue, newSinBin =
-            updateShaInQueue id newValue queue sinBin
+            updateShaInQueue number newValue queue sinBin
 
         false, newQueue, newSinBin
 
 
 // SMELL: these signatures are huge! Why?
 // SMELL: these were private before command split, are they real domain methods?
-let updateStatusesInSinBin (id: PullRequestID) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
+let updateStatusesInSinBin (number: PullRequestNumber) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue)
     (sinBin: SinBin): AttemptQueue * SinBin =
     // check to see if we should pull the matching commit out of the "sin bin"
     let matching =
-        sinBin |> SinBin.tryFind (fun (NaughtyPullRequest pr) -> pr.id = id && pr.sha = buildSha)
+        sinBin |> SinBin.tryFind (fun (NaughtyPullRequest pr) -> pr.number = number && pr.sha = buildSha)
 
     match matching with
     | Some(NaughtyPullRequest pr) ->
         // update PR's status
         let updated = { pr with statuses = statuses }
-        let updatedSinBin = sinBin |> SinBin.removeById id
+        let updatedSinBin = sinBin |> SinBin.removeByNumber number
 
         match prepareForQueue updated with
         | Choice1Of2 passing ->
@@ -317,7 +317,7 @@ let previewExecutionPlan (model: MergeQueue): ExecutionPlan =
                 let batchIds =
                     batch
                     |> RunnableBatch.toPullRequests
-                    |> List.map (fun pr -> pr.id)
+                    |> List.map (fun pr -> pr.number)
                 PlannedBatch batchIds :: (splitIntoBatches remainder)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
@@ -347,8 +347,8 @@ let enqueue (pullRequest: PullRequest) (model: MergeQueue): Result<EnqueueSucces
     let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
     // TODO: Concept here, "locate pull request", multiple occurrences
     // TODO: Currently not checking to see if the pull request is currently running!
-    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.id
-    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.id
+    let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.number
+    let alreadySinBinned = model.sinBin |> SinBin.contains pullRequest.number
     let prepared = prepareForQueue pullRequest
 
     match isBuildFailing, alreadyEnqueued, alreadySinBinned, prepared with

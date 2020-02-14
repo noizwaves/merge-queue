@@ -19,7 +19,7 @@ let private getOrFail result =
     | Ok a -> a
     | Error b -> failwithf "Failed because: %s" b
 
-let private makePullRequestID = PullRequestID.create >> getOrFail
+let private makePullRequestID = PullRequestNumber.create >> getOrFail
 let private makeSha = SHA.create >> getOrFail
 let private makeCommitStatus = CommitStatus.create >> getOrFail
 
@@ -121,7 +121,7 @@ let ``Enqueue a Pull Request``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ one.id ] ]
+    |> should equal [ PlannedBatch [ one.number ] ]
 
 [<Fact>]
 let ``Enqueue a Pull Request with a failing commit status is rejected``() =
@@ -197,7 +197,7 @@ let ``Enqueue an already enqueued Pull Request``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ one.id ] ]
+    |> should equal [ PlannedBatch [ one.number ] ]
 
 [<Fact>]
 let ``Enqueue a sin binned Pull Request``() =
@@ -244,7 +244,7 @@ let ``Enqueue multiple Pull Requests``() =
 
     secondState
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ one.id; two.id ] ]
+    |> should equal [ PlannedBatch [ one.number; two.number ] ]
 
 // Dequeue a Pull Request
 [<Fact>]
@@ -391,7 +391,7 @@ let ``Start a batch``() =
 
     state
     |> previewExecutionPlan
-    |> should equal [ PlannedBatch [ one.id; two.id ] ]
+    |> should equal [ PlannedBatch [ one.number; two.number ] ]
 
 [<Fact>]
 let ``Attempt to start a second concurrent batch``() =
@@ -563,8 +563,8 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     runningQueueDepthThree
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id ]
-             PlannedBatch [ three.id ] ]
+           [ PlannedBatch [ one.number; two.number ]
+             PlannedBatch [ three.number ] ]
 
     let finishedQueue =
         runningQueueDepthThree
@@ -868,8 +868,8 @@ let ``Failed batches are bisected upon build failure``() =
     failedBuildOfFour
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id; two.id ]
-             PlannedBatch [ three.id; four.id ] ]
+           [ PlannedBatch [ one.number; two.number ]
+             PlannedBatch [ three.number; four.number ] ]
 
     let firstResult, firstState =
         failedBuildOfFour |> applyCommands (fun load save -> startBatch load save ())
@@ -884,9 +884,9 @@ let ``Failed batches are bisected upon build failure``() =
     bisectedFails
     |> previewExecutionPlan
     |> should equal
-           [ PlannedBatch [ one.id ]
-             PlannedBatch [ two.id ]
-             PlannedBatch [ three.id; four.id ] ]
+           [ PlannedBatch [ one.number ]
+             PlannedBatch [ two.number ]
+             PlannedBatch [ three.number; four.number ] ]
 
     let secondResult, secondState =
         bisectedFails |> applyCommands (fun load save -> startBatch load save ())

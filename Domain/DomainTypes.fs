@@ -5,8 +5,7 @@ open System.Collections
 module DomainTypes =
     type SHA = SHA of string
 
-    // TODO: Rename to Number, this is GitHub vocab
-    type PullRequestID = PullRequestID of int
+    type PullRequestNumber = PullRequestNumber of int
 
     // SMELL: Are CommitStatusState and CommitStatus words in our domain? Or borrowed from GitHub's API...
     type CommitStatusState =
@@ -21,7 +20,7 @@ module DomainTypes =
     type CommitStatuses = List<CommitStatus>
 
     type PullRequest =
-        { id: PullRequestID
+        { number: PullRequestNumber
           sha: SHA
           statuses: CommitStatuses }
 
@@ -61,7 +60,7 @@ module DomainTypes =
 
     // A batch from this list should not be a batch that can be used for other functions
     // so more like a List<PreviewBatch> or List<PlannedBatch>
-    type PlannedBatch = PlannedBatch of List<PullRequestID>
+    type PlannedBatch = PlannedBatch of List<PullRequestNumber>
 
     type ExecutionPlan = List<PlannedBatch>
 
@@ -75,7 +74,7 @@ module DomainTypes =
 
     type AddToQueue = PassingPullRequest -> AttemptQueue -> AttemptQueue
 
-    type RemoveFromQueue = PullRequestID -> AttemptQueue -> AttemptQueue
+    type RemoveFromQueue = PullRequestNumber -> AttemptQueue -> AttemptQueue
 
     type AddToSinBin = NaughtyPullRequest -> SinBin -> SinBin
 
@@ -108,13 +107,13 @@ module DomainTypes =
     // Does there just need to be an UpdateSha? UpdateSha = PullRequestNumber -> SHA -> MergeQueue -> MergeQueue
 
     // result is keep PR in Sin Bin
-    type UpdateShaInSinBin = PullRequestID -> SHA -> SinBin -> SinBin
+    type UpdateShaInSinBin = PullRequestNumber -> SHA -> SinBin -> SinBin
     // result is Maybe move PR to Sin Bin
-    type UpdateShaInQueue = PullRequestID -> SHA -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
+    type UpdateShaInQueue = PullRequestNumber -> SHA -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
     // result is maybe cancel the current batch
-    type UpdateShaInRunningBatch = PullRequestID -> SHA -> Batch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
+    type UpdateShaInRunningBatch = PullRequestNumber -> SHA -> Batch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
 
-    type UpdateStatusesInSinBin = PullRequestID -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
+    type UpdateStatusesInSinBin = PullRequestNumber -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
 
 
 
@@ -126,14 +125,14 @@ module DomainTypes =
 
     // State is really just convenience for AttemptQueue * SinBin
     // State only changes some of the time
-    type Dequeue = PullRequestID -> MergeQueue -> MergeQueue
+    type Dequeue = PullRequestNumber -> MergeQueue -> MergeQueue
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command
     type StartBatch = MergeQueue -> MergeQueue
 
-    type UpdateSha = PullRequestID * SHA -> (MergeQueue -> MergeQueue)
+    type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
 
-    type UpdateStatuses = PullRequestID * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
+    type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
