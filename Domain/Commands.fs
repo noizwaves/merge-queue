@@ -243,7 +243,7 @@ module IngestBuild =
         | Running failed, Failure ->
             match bisect failed with
             | None ->
-                let queue, nextActive = failWithoutRetry model.queue failed
+                let queue, nextActive = failWithoutRetry failed model.queue
 
                 let newModel =
                     { model with
@@ -255,7 +255,7 @@ module IngestBuild =
                 ReportBuildFailureNoRetry prs
 
             | Some(first, second) ->
-                let queue, nextActive = failWithRetry model.queue first second
+                let queue, nextActive = failWithRetry first second model.queue
 
                 let newModel =
                     { model with
@@ -303,7 +303,7 @@ module IngestMerge =
         let model = load()
         match model.activeBatch, message with
         | Merging merged, MergeMessage.Success ->
-            let queue, batch = merged |> completeMerge model.queue
+            let queue, batch = completeMerge merged model.queue
 
             let newModel =
                 { model with
@@ -315,7 +315,7 @@ module IngestMerge =
 
             MergeComplete pullRequests
         | Merging unmerged, MergeMessage.Failure ->
-            let queue, batch = unmerged |> failMerge model.queue
+            let queue, batch = failMerge unmerged model.queue
             let pullRequests = unmerged |> MergeableBatch.toPullRequests
 
             let newModel =

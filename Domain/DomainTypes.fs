@@ -72,6 +72,7 @@ module DomainTypes =
 
     type PrepareForQueue = PullRequest -> Choice<PassingPullRequest, NaughtyPullRequest>
 
+    // SMELL: this doesn't always succeed...
     type AddToQueue = PassingPullRequest -> AttemptQueue -> AttemptQueue
 
     type RemoveFromQueue = PullRequestNumber -> AttemptQueue -> AttemptQueue
@@ -97,12 +98,13 @@ module DomainTypes =
 
     type FailWithRetry = BisectedBatch -> BisectedBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
+    // SMELL: does this always succeed? What does it's success depend on?
     type CompleteMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
     type FailMerge = MergeableBatch -> AttemptQueue -> (AttemptQueue * ActiveBatch)
 
 
-    // These feel kinda like application services...
+    // These feel kinda like application services... or implementation helpers
     // these may move pull requests SinBin <> AttemptQueue
     // Does there just need to be an UpdateSha? UpdateSha = PullRequestNumber -> SHA -> MergeQueue -> MergeQueue
 
@@ -111,7 +113,7 @@ module DomainTypes =
     // result is Maybe move PR to Sin Bin
     type UpdateShaInQueue = PullRequestNumber -> SHA -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
     // result is maybe cancel the current batch
-    type UpdateShaInRunningBatch = PullRequestNumber -> SHA -> Batch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
+    type UpdateShaInRunningBatch = PullRequestNumber -> SHA -> RunnableBatch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
 
     type UpdateStatusesInSinBin = PullRequestNumber -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
 
@@ -121,7 +123,15 @@ module DomainTypes =
 
     // State is really just convenience for AttemptQueue * SinBin
     // State only changes some of the time...
-    type Enqueue = PullRequest -> MergeQueue -> MergeQueue
+    type EnqueueSuccess =
+        | Enqueued of MergeQueue
+        | SinBinned of MergeQueue
+
+    type EnqueueError =
+        | RejectedFailingBuildStatus
+        | AlreadyEnqueued
+        
+    type Enqueue = PullRequest -> MergeQueue -> Result<EnqueueSuccess, EnqueueError>
 
     // State is really just convenience for AttemptQueue * SinBin
     // State only changes some of the time
