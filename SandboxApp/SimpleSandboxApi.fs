@@ -113,16 +113,16 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
 let dequeue (load: Load) (save: Save) id: WebPart =
     let dequeue' = dequeue load save
-    let cmd: DequeueCommand = { number = id }
+    let cmd: Dequeue.Command = { number = id }
 
     let result = dequeue' cmd
 
     let response =
         match result with
-        | Dequeued -> "Dequeued"
-        | DequeuedAndAbortRunningBatch _ -> "Dequeued (a running batch was cancelled)"
-        | RejectedInMergingBatch -> "Rejected (in a merging batch)"
-        | NotFound -> "Not found"
+        | Ok(Success.Dequeued) -> "Dequeued"
+        | Ok(Success.DequeuedAndAbortRunningBatch _) -> "Dequeued (a running batch was cancelled)"
+        | Error(RejectedInMergingBatch) -> "Rejected (in a merging batch)"
+        | Error(NotFound) -> "Not found"
 
     response
     |> toJson
@@ -137,9 +137,9 @@ let start (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | PerformBatchBuild _ -> "Starting batch build"
-        | AlreadyRunning -> "A batch is already running"
-        | EmptyQueue -> "Queue is empty, no batch to start"
+        | Ok (PerformBatchBuild _) -> "Starting batch build"
+        | Error AlreadyRunning -> "A batch is already running"
+        | Error EmptyQueue -> "Queue is empty, no batch to start"
 
     response
     |> toJson
@@ -160,13 +160,14 @@ let finish (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | IngestBuildResult.NoOp -> "NoOp"
-        | PerformBatchMerge _ ->
+        | Ok IngestBuildSuccess.NoChange -> "NoOp"
+        | Ok (PerformBatchMerge _) ->
             // HACK: do the merge if we should it...
             ingestMergeUpdate' { message = (MergeMessage.Success) } |> ignore
             "Batch finished"
-        | ReportBuildFailureWithRetry _ -> "Batch failed"
-        | ReportBuildFailureNoRetry _ -> "Batch failed"
+        | Ok (ReportBuildFailureWithRetry _) -> "Batch failed"
+        | Ok (ReportBuildFailureNoRetry _) -> "Batch failed"
+        | Error _ -> failwith "Unhandled error"
 
     response
     |> toJson

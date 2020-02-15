@@ -5,6 +5,7 @@ open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.DbTypes
+open MergeQueue.Commands
 open MergeQueue.Commands.Enqueue
 open MergeQueue.Commands.UpdateStatuses
 open MergeQueue.Commands.Dequeue
@@ -30,28 +31,28 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 
 let private one = PullRequest.create (makePullRequestID 1) (makeSha "00001111") [ passedCircleCI ]
 
-let private oneCmd: Command =
+let private oneCmd: Enqueue.Command =
     { number = 1
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
 let private two = PullRequest.create (makePullRequestID 22) (makeSha "00002222") [ passedCircleCI ]
 
-let private twoCmd: Command =
+let private twoCmd: Enqueue.Command =
     { number = 22
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
 
 let private three = PullRequest.create (makePullRequestID 333) (makeSha "00003333") [ passedCircleCI ]
 
-let private threeCmd: Command =
+let private threeCmd: Enqueue.Command =
     { number = 333
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
-let private fourCmd: Command =
+let private fourCmd: Enqueue.Command =
     { number = 4444
       sha = "00004444"
       statuses = [ "circleci", "Success" ] }
@@ -108,7 +109,7 @@ let ``Enqueue a Pull Request``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save oneCmd)
 
-    let expected: Result<Success, Error> = Ok Success.Enqueued
+    let expected: EnqueueResult = Ok Success.Enqueued
     result |> should equal expected
 
     state
@@ -134,7 +135,7 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save failingCmd)
 
-    let expected: Result<Success, Error> = Error(Error.EnqueueError RejectedFailingBuildStatus)
+    let expected: EnqueueResult = Error(Error.EnqueueError RejectedFailingBuildStatus)
     result |> should equal expected
 
     state |> should equal MergeQueue.empty
@@ -152,7 +153,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 
     printf "%O" result
 
-    let expected: Result<Success, Error> = Ok Success.SinBinned
+    let expected: EnqueueResult = Ok Success.SinBinned
     result |> should equal expected
 
     state
@@ -170,7 +171,7 @@ let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
     let (result, state) =
         MergeQueue.empty |> applyCommands (fun load save -> enqueue load save noStatusesCmd)
 
-    let expected: Result<Success, Error> =
+    let expected: EnqueueResult =
         Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus)
     result |> should equal expected
 
@@ -187,7 +188,7 @@ let ``Enqueue an already enqueued Pull Request``() =
     let (result, state) =
         singlePrQueueState |> applyCommands (fun load save -> enqueue load save duplicateCmd)
 
-    let expected: Result<Success, Error> =
+    let expected: EnqueueResult =
         Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)
     result |> should equal expected
 
@@ -219,7 +220,7 @@ let ``Enqueue a sin binned Pull Request``() =
                   sha = "92929292"
                   statuses = [ "circleci", "Success" ] })
 
-    let expected: Result<Success, Error> =
+    let expected: EnqueueResult =
         Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)
     result |> should equal expected
 
@@ -233,7 +234,7 @@ let ``Enqueue multiple Pull Requests``() =
     let secondResult, secondState =
         firstState |> applyCommands (fun load save -> enqueue load save twoCmd)
 
-    let expected: Result<Success, Error> = Ok Success.Enqueued
+    let expected: EnqueueResult = Ok Success.Enqueued
     firstResult |> should equal expected
 
     secondResult |> should equal expected
@@ -252,7 +253,8 @@ let ``Dequeue an enqueued Pull Request``() =
     let result, state =
         idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    result |> should equal (DequeueResult.Dequeued)
+    let expected: DequeueResult = Ok Success.Dequeued
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -275,7 +277,8 @@ let ``Dequeue a sin binned Pull Request``() =
     let result, state =
         idleWithOneEnqueuedOneSinBinned |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    result |> should equal (DequeueResult.Dequeued)
+    let expected: DequeueResult = Ok Success.Dequeued
+    result |> should equal (expected)
 
     state
     |> peekCurrentQueue
@@ -290,7 +293,8 @@ let ``Dequeue an unknown Pull Request``() =
     let result, state =
         idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404 })
 
-    result |> should equal (DequeueResult.NotFound)
+    let expected: DequeueResult = Error Error.NotFound
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -305,7 +309,8 @@ let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
         runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    result |> should equal (DequeueResult.DequeuedAndAbortRunningBatch([ one; two ], (makePullRequestID 1)))
+    let expected: DequeueResult = Ok(Success.DequeuedAndAbortRunningBatch([ one; two ], (makePullRequestID 1)))
+    result |> should equal expected
 
     state
     |> peekCurrentBatch
@@ -327,7 +332,8 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
             enqueue load save threeCmd |> ignore
             dequeue load save { number = 333 })
 
-    result |> should equal DequeueResult.Dequeued
+    let expected: DequeueResult = Ok Success.Dequeued
+    result |> should equal expected
 
     state
     |> peekCurrentBatch
@@ -346,7 +352,8 @@ let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
         mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    result |> should equal DequeueResult.RejectedInMergingBatch
+    let expected: DequeueResult = Error Error.RejectedInMergingBatch
+    result |> should equal expected
 
     state |> should equal mergingBatchOfTwo
 
@@ -358,7 +365,8 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
             enqueue load save threeCmd |> ignore
             dequeue load save { number = 333 })
 
-    result |> should equal DequeueResult.Dequeued
+    let expected: DequeueResult = Ok Success.Dequeued
+    result |> should equal expected
 
     state
     |> peekCurrentBatch
@@ -379,7 +387,8 @@ let ``Start a batch``() =
     let (result, state) =
         idleWithTwoPullRequests |> applyCommands (fun load save -> startBatch load save ())
 
-    result |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
+    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one; two ])
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -401,7 +410,8 @@ let ``Attempt to start a second concurrent batch``() =
     let (result, state) =
         runningBatch |> applyCommands (fun load save -> startBatch load save ())
 
-    result |> should equal StartBatchResult.AlreadyRunning
+    let expected: StartBatchResult = Error AlreadyRunning
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -418,7 +428,8 @@ let ``Attempt to start a second concurrent batch during merging``() =
     let result, state =
         mergingQueue |> applyCommands (fun load save -> startBatch load save ())
 
-    result |> should equal AlreadyRunning
+    let expected: StartBatchResult = Error AlreadyRunning
+    result |> should equal expected
 
     state |> should equal mergingQueue
 
@@ -430,7 +441,8 @@ let ``Attempt to start a batch on an empty queue``() =
     let (result, state) =
         queue |> applyCommands (fun load save -> startBatch load save ())
 
-    result |> should equal StartBatchResult.EmptyQueue
+    let expected: StartBatchResult = Error EmptyQueue
+    result |> should equal expected
 
     state |> should equal queue
 
@@ -445,7 +457,8 @@ let ``Recieve message that batch successfully builds when batch is running``() =
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
 
-    result |> should equal (IngestBuildResult.PerformBatchMerge([ one; two ], (makeSha "12345678")))
+    let expected: IngestBuildResult = Ok(PerformBatchMerge([ one; two ], (makeSha "12345678")))
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -463,7 +476,8 @@ let ``Recieve message that batch failed the build when batch is running``() =
         runningQueue
         |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure })
 
-    result |> should equal (IngestBuildResult.ReportBuildFailureWithRetry [ one; two ])
+    let expected: IngestBuildResult = Ok(ReportBuildFailureWithRetry [ one; two ])
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -490,7 +504,8 @@ let ``Single PR batches that fail to build are dequeued``() =
         runningBatchOfOne
         |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure })
 
-    result |> should equal (IngestBuildResult.ReportBuildFailureNoRetry [ one ])
+    let expected: IngestBuildResult = Ok(ReportBuildFailureNoRetry [ one ])
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -511,7 +526,8 @@ let ``Recieve message that build failed when no running batch``() =
     let result, state =
         idleQueue |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure })
 
-    result |> should equal IngestBuildResult.NoOp
+    let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
+    result |> should equal expected
 
     state |> should equal idleQueue
 
@@ -524,7 +540,8 @@ let ``Recieve message that build succeeded when no running batch``() =
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
 
-    result |> should equal IngestBuildResult.NoOp
+    let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
+    result |> should equal expected
 
     state |> should equal idleQueue
 
@@ -536,7 +553,8 @@ let ``Recieve message that build failed when batch is being merged``() =
         mergingQueue
         |> applyCommands (fun load save -> ingestBuildUpdate load save { message = BuildMessage.Failure })
 
-    result |> should equal IngestBuildResult.NoOp
+    let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
+    result |> should equal expected
 
     state |> should equal mergingQueue
 
@@ -549,7 +567,8 @@ let ``Recieve message that build succeeded when batch is being merged``() =
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
 
-    result |> should equal IngestBuildResult.NoOp
+    let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
+    result |> should equal expected
 
     state |> should equal mergingQueue
 
@@ -580,7 +599,8 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let (result, _) =
         finishedQueue |> applyCommands (fun load save -> startBatch load save ())
 
-    result |> should equal (StartBatchResult.PerformBatchBuild [ three ])
+    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ three ])
+    result |> should equal expected
 
 // Batch Merge Message ingestion
 
@@ -592,7 +612,8 @@ let ``Merge success message when batch is being merged``() =
         mergingQueue
         |> applyCommands (fun load save -> ingestMergeUpdate load save { message = MergeMessage.Success })
 
-    result |> should equal (IngestMergeResult.MergeComplete [ one; two ])
+    let expected: IngestMergeResult = Ok(IngestMergeSuccess.MergeComplete [ one; two ])
+    result |> should equal expected
 
     state |> should equal MergeQueue.empty
 
@@ -608,7 +629,8 @@ let ``Merge failure message when batch is being merged``() =
     |> peekCurrentQueue
     |> should equal [ one; two ]
 
-    result |> should equal (IngestMergeResult.ReportMergeFailure [ one; two ])
+    let expected: IngestMergeResult = Ok(IngestMergeSuccess.ReportMergeFailure [ one; two ])
+    result |> should equal expected
 
 // PRs are updated
 
@@ -626,7 +648,8 @@ let ``The branch head for an enqueued PR is updated``() =
                 { number = 1
                   sha = "10101010" })
 
-    result |> should equal UpdatePullRequestResult.NoOp
+    let expected: UpdatePullRequestResult = Ok NoChange
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -648,7 +671,8 @@ let ``The branch head for a running PR is updated``() =
                 { number = 1
                   sha = "10101010" })
 
-    result |> should equal (UpdatePullRequestResult.AbortRunningBatch([ one; two ], makePullRequestID 1))
+    let expected: UpdatePullRequestResult = Ok(Success.AbortRunningBatch([ one; two ], makePullRequestID 1))
+    result |> should equal expected
 
     state
     |> peekCurrentQueue
@@ -670,7 +694,8 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
                 { number = 404
                   sha = "40400404" })
 
-    result |> should equal UpdatePullRequestResult.NoOp
+    let expected: UpdatePullRequestResult = Ok NoChange
+    result |> should equal expected
 
     state |> should equal running
 
@@ -688,7 +713,8 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
                 { number = 333
                   sha = "30303030" })
 
-    result |> should equal UpdatePullRequestResult.NoOp
+    let expected: UpdatePullRequestResult = Ok NoChange
+    result |> should equal expected
 
     state
     |> peekCurrentBatch
@@ -713,7 +739,8 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
                 { number = 333
                   sha = "30303030" })
 
-    result |> should equal UpdatePullRequestResult.NoOp
+    let expected: UpdatePullRequestResult = Ok NoChange
+    result |> should equal expected
 
     state
     |> peekCurrentBatch
@@ -738,7 +765,7 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
                 { number = 1
                   sha = "10101010" })
 
-    let expectedResult = UpdatePullRequestResult.AbortMergingBatch([ one; two ], (makePullRequestID 1))
+    let expectedResult: UpdatePullRequestResult = Ok(AbortMergingBatch([ one; two ], (makePullRequestID 1)))
     result |> should equal expectedResult
 
     // Future improvement here!
@@ -874,7 +901,8 @@ let ``Failed batches are bisected upon build failure``() =
     let firstResult, firstState =
         failedBuildOfFour |> applyCommands (fun load save -> startBatch load save ())
 
-    firstResult |> should equal (StartBatchResult.PerformBatchBuild [ one; two ])
+    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one; two ])
+    firstResult |> should equal expected
 
     // fail the first bisected batch
     let _, bisectedFails =
@@ -891,7 +919,8 @@ let ``Failed batches are bisected upon build failure``() =
     let secondResult, secondState =
         bisectedFails |> applyCommands (fun load save -> startBatch load save ())
 
-    secondResult |> should equal (StartBatchResult.PerformBatchBuild [ one ])
+    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one ])
+    secondResult |> should equal expected
 
     secondState
     |> peekCurrentBatch

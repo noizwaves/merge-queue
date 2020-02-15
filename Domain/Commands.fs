@@ -124,281 +124,310 @@ module Enqueue =
             |> Result.map toSuccess
 
 module Dequeue =
-    type DequeueCommand =
+    // Types
+    type Command =
         { number: int }
 
-    type DequeueResult =
+    type Success =
         | Dequeued
         | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
+
+    // TODO: Validation error
+    type Error =
         | RejectedInMergingBatch
         | NotFound
 
-    let dequeue (load: Load) (save: Save) (command: DequeueCommand): DequeueResult =
-        // TODO: chain validation with further processing and return errors
-        let number =
-            match PullRequestNumber.create command.number with
-            | Ok number -> number
-            | Error error -> failwithf "Validation failed: %s" error
+    type DequeueResult = Result<Success, Error>
 
-        let model = load()
-        // TODO: Concept here, "locate pull request", multiple occurrences
-        let isCurrent = model.activeBatch |> ActiveBatch.contains number
-        let isEnqueued = model.queue |> AttemptQueue.contains number
-        let isSinBinned = model.sinBin |> SinBin.contains number
+    type DequeueWorkflow = Command -> DequeueResult
 
-        let result, newModel =
-            match isCurrent, isEnqueued, isSinBinned with
-            | true, _, _ ->
-                match model.activeBatch with
-                | Running(RunnableBatch batch) ->
-                    let newQueue =
-                        model.queue
-                        |> AttemptQueue.prepend batch
-                        |> AttemptQueue.removeByNumber number
+    // Implementation
 
-                    let newBatch = NoBatch
+    // the final workflow
+    let dequeue (load: Load) (save: Save): DequeueWorkflow =
+        fun command ->
+            // TODO: chain validation with further processing and return errors
+            let number =
+                match PullRequestNumber.create command.number with
+                | Ok number -> number
+                | Error error -> failwithf "Validation failed: %s" error
 
-                    let pullRequests = batch |> Batch.toPullRequests
-                    let result = DequeuedAndAbortRunningBatch(pullRequests, number)
+            let model = load()
+            // TODO: Concept here, "locate pull request", multiple occurrences
+            let isCurrent = model.activeBatch |> ActiveBatch.contains number
+            let isEnqueued = model.queue |> AttemptQueue.contains number
+            let isSinBinned = model.sinBin |> SinBin.contains number
 
-                    let newModel =
-                        { model with
-                              queue = newQueue
-                              activeBatch = newBatch }
-                    result, newModel
+            let result, newModel =
+                match isCurrent, isEnqueued, isSinBinned with
+                | true, _, _ ->
+                    match model.activeBatch with
+                    | Running(RunnableBatch batch) ->
+                        let newQueue =
+                            model.queue
+                            |> AttemptQueue.prepend batch
+                            |> AttemptQueue.removeByNumber number
 
-                | Merging _ ->
-                    RejectedInMergingBatch, model
+                        let newBatch = NoBatch
 
-                | NoBatch ->
-                    // SMELL: this is an impossible branch to get into...
-                    failwith "PullRequest cannot be in an empty batch"
+                        let pullRequests = batch |> Batch.toPullRequests
+                        let result = Ok(DequeuedAndAbortRunningBatch(pullRequests, number))
 
-            | _, true, _ ->
-                let newQueue = model.queue |> AttemptQueue.removeByNumber number
-                Dequeued, { model with queue = newQueue }
+                        let newModel =
+                            { model with
+                                  queue = newQueue
+                                  activeBatch = newBatch }
+                        result, newModel
 
-            | _, _, true ->
-                let newSinBin = model.sinBin |> SinBin.removeByNumber number
-                Dequeued, { model with sinBin = newSinBin }
+                    | Merging _ ->
+                        Error(RejectedInMergingBatch), model
 
-            | false, false, false ->
-                NotFound, model
+                    | NoBatch ->
+                        // SMELL: this is an impossible branch to get into...
+                        failwith "PullRequest cannot be in an empty batch"
 
-        save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
-        result
+                | _, true, _ ->
+                    let newQueue = model.queue |> AttemptQueue.removeByNumber number
+                    Ok(Dequeued), { model with queue = newQueue }
+
+                | _, _, true ->
+                    let newSinBin = model.sinBin |> SinBin.removeByNumber number
+                    Ok(Dequeued), { model with sinBin = newSinBin }
+
+                | false, false, false ->
+                    Error(NotFound), model
+
+            save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
+            result
 
 module StartBatch =
-    type StartBatchCommand = unit
+    // Types
+    type Command = unit
 
-    type StartBatchResult =
-        | PerformBatchBuild of List<PullRequest>
+    type Success = PerformBatchBuild of List<PullRequest>
+
+    type Error =
         | AlreadyRunning
         | EmptyQueue
 
+    type StartBatchResult = Result<Success, Error>
+
+    type StartBatchWorkflow = Command -> StartBatchResult
+
+    // Implementation
+
     // SMELL: what calls this? synchronous after some other call?
     // maybe make start batch private, and call it inside enqueue && updateStatus?
-    let startBatch (load: Load) (save: Save) (command: StartBatchCommand): StartBatchResult =
-        let model = load()
-        match model.activeBatch, model.queue with
-        | Running _, _ -> AlreadyRunning
-        | Merging _, _ -> AlreadyRunning
-        | NoBatch, AttemptQueue [] -> EmptyQueue
-        | NoBatch, queue ->
-            match pickNextBatch queue with
-            | Some(batch, remaining) ->
-                let newModel =
-                    { model with
-                          activeBatch = Running batch
-                          queue = remaining }
-                save newModel
+    let startBatch (load: Load) (save: Save): StartBatchWorkflow =
+        fun command ->
+            let model = load()
+            match model.activeBatch, model.queue with
+            | Running _, _ -> Error AlreadyRunning
+            | Merging _, _ -> Error AlreadyRunning
+            | NoBatch, AttemptQueue [] -> Error EmptyQueue
+            | NoBatch, queue ->
+                match pickNextBatch queue with
+                | Some(batch, remaining) ->
+                    let newModel =
+                        { model with
+                              activeBatch = Running batch
+                              queue = remaining }
+                    save newModel
 
-                let pullRequests = batch |> RunnableBatch.toPullRequests
-                PerformBatchBuild pullRequests
-            | None ->
-                // SMELL: impossible code path, all non-empty queues have a next batch...
-                // SMELL: how could execution get here and result is empty?
-                EmptyQueue
+                    let pullRequests = batch |> RunnableBatch.toPullRequests
+                    Ok(PerformBatchBuild pullRequests)
+                | None ->
+                    // SMELL: impossible code path, all non-empty queues have a next batch...
+                    // SMELL: how could execution get here and result is empty?
+                    Error EmptyQueue
 
 module IngestBuild =
+    // Types
     // TODO/SMELL: move domain type out of Command type
     type BuildMessage =
         | Success of SHA // TODO: make this a string
-        | Failure
+        | Failure // TODO: how do we know which SHA failed? do we care?
 
-    type IngestBuildCommand =
+    type Command =
         { message: BuildMessage }
 
-    type IngestBuildResult =
-        | NoOp
+    // SMELL: Success type name clashes with Success constructor for BuildMessage
+    type IngestBuildSuccess =
+        | NoChange
         | PerformBatchMerge of List<PullRequest> * SHA
         | ReportBuildFailureWithRetry of List<PullRequest>
         | ReportBuildFailureNoRetry of List<PullRequest>
 
-    let ingestBuildUpdate (load: Load) (save: Save) (command: IngestBuildCommand): IngestBuildResult =
-        let message = command.message
+    // TODO: Validation error goes here
+    type Error = unit
 
-        let model = load()
-        match model.activeBatch, message with
-        | Running failed, Failure ->
-            match bisect failed with
-            | None ->
-                let queue, nextActive = failWithoutRetry failed model.queue
+    type IngestBuildResult = Result<IngestBuildSuccess, Error>
 
-                let newModel =
-                    { model with
-                          queue = queue
-                          activeBatch = nextActive }
+    type IngestBuildWorkflow = Command -> IngestBuildResult
+
+    // Implementation
+    let ingestBuildUpdate (load: Load) (save: Save): IngestBuildWorkflow =
+        fun command ->
+            let message = command.message
+
+            let model = load()
+            match model.activeBatch, message with
+            | Running failed, Failure ->
+                match bisect failed with
+                | None ->
+                    let queue, nextActive = failWithoutRetry failed model.queue
+
+                    let newModel =
+                        { model with
+                              queue = queue
+                              activeBatch = nextActive }
+                    save newModel
+
+                    let prs = failed |> RunnableBatch.toPullRequests
+                    Ok(ReportBuildFailureNoRetry prs)
+
+                | Some(first, second) ->
+                    let queue, nextActive = failWithRetry first second model.queue
+
+                    let newModel =
+                        { model with
+                              queue = queue
+                              activeBatch = nextActive }
+                    save newModel
+
+                    let prs = failed |> RunnableBatch.toPullRequests
+                    Ok(ReportBuildFailureWithRetry prs)
+
+            | Running succeeded, Success targetHead ->
+                let nextActive = completeBuild succeeded
+                let newModel = { model with activeBatch = nextActive }
+                let pullRequests = succeeded |> RunnableBatch.toPullRequests
+                let result = PerformBatchMerge(pullRequests, targetHead)
+
                 save newModel
+                Ok result
 
-                let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureNoRetry prs
-
-            | Some(first, second) ->
-                let queue, nextActive = failWithRetry first second model.queue
-
-                let newModel =
-                    { model with
-                          queue = queue
-                          activeBatch = nextActive }
-                save newModel
-
-                let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureWithRetry prs
-
-        | Running succeeded, Success targetHead ->
-            let nextActive = completeBuild succeeded
-            let newModel = { model with activeBatch = nextActive }
-            let pullRequests = succeeded |> RunnableBatch.toPullRequests
-            let result = PerformBatchMerge(pullRequests, targetHead)
-
-            save newModel
-            result
-
-        | NoBatch, Failure ->
-            NoOp
-        | Merging _, Failure ->
-            NoOp
-        | NoBatch, Success _ ->
-            NoOp
-        | Merging _, Success _ ->
-            NoOp
+            | NoBatch, Failure ->
+                Ok NoChange
+            | Merging _, Failure ->
+                Ok NoChange
+            | NoBatch, Success _ ->
+                Ok NoChange
+            | Merging _, Success _ ->
+                Ok NoChange
 
 module IngestMerge =
+    // Types
+    // TODO: This should be a DTO that represents the Batch merged result
     type MergeMessage =
         | Success
         | Failure
 
-    type IngestMergeCommand =
+    type Command =
         { message: MergeMessage }
 
-    type IngestMergeResult =
-        | NoOp
+    type IngestMergeSuccess =
+        | NoChange
         | MergeComplete of List<PullRequest>
         | ReportMergeFailure of List<PullRequest>
 
-    let ingestMergeUpdate (load: Load) (save: Save) (command: IngestMergeCommand): IngestMergeResult =
-        let message = command.message
+    type Error = unit
 
-        let model = load()
-        match model.activeBatch, message with
-        | Merging merged, MergeMessage.Success ->
-            let queue, batch = completeMerge merged model.queue
+    type IngestMergeResult = Result<IngestMergeSuccess, Error>
 
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = batch }
-            save newModel
+    type IngestMergeWorkflow = Command -> IngestMergeResult
 
-            let pullRequests = merged |> MergeableBatch.toPullRequests
+    // Implementation
+    let ingestMergeUpdate (load: Load) (save: Save): IngestMergeWorkflow =
+        fun command ->
+            let message = command.message
 
-            MergeComplete pullRequests
-        | Merging unmerged, MergeMessage.Failure ->
-            let queue, batch = failMerge unmerged model.queue
-            let pullRequests = unmerged |> MergeableBatch.toPullRequests
+            let model = load()
+            match model.activeBatch, message with
+            | Merging merged, MergeMessage.Success ->
+                let queue, batch = completeMerge merged model.queue
 
-            let newModel =
-                { model with
-                      queue = queue
-                      activeBatch = batch }
-            save newModel
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = batch }
+                save newModel
 
-            ReportMergeFailure pullRequests
-        | _, _ ->
-            IngestMergeResult.NoOp
+                let pullRequests = merged |> MergeableBatch.toPullRequests
+
+                Ok(MergeComplete pullRequests)
+            | Merging unmerged, MergeMessage.Failure ->
+                let queue, batch = failMerge unmerged model.queue
+                let pullRequests = unmerged |> MergeableBatch.toPullRequests
+
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = batch }
+                save newModel
+
+                Ok(ReportMergeFailure pullRequests)
+            | _, _ ->
+                Ok NoChange
 
 module UpdatePullRequest =
-    type UpdatePullRequestCommand =
+    // Types
+    type Command =
         { number: int
           sha: string }
 
-    type UpdatePullRequestResult =
-        | NoOp
+    // TODO: Expand with the other successful outcomes, like moved to Sin Bin
+    type Success =
+        | NoChange
         | AbortRunningBatch of List<PullRequest> * PullRequestNumber
         | AbortMergingBatch of List<PullRequest> * PullRequestNumber
 
-    let updatePullRequestSha (load: Load) (save: Save) (command: UpdatePullRequestCommand): UpdatePullRequestResult =
-        // TODO: chain validation with further processing and return errors
-        let number' = PullRequestNumber.create command.number
-        let newSha' = SHA.create command.sha
+    type UpdatePullRequestResult = Result<Success, unit>
 
-        let number, newSha =
-            match number', newSha' with
-            | Ok number, Ok newValue -> number, newValue
-            | Error error, _ -> failwithf "Validation failed: %s" error
-            | _, Error error -> failwithf "Validation failed: %s" error
+    type UpdatePullRequestWorkflow = Command -> UpdatePullRequestResult
 
-        let model = load()
+    // Implementation
+    let updatePullRequestSha (load: Load) (save: Save): UpdatePullRequestWorkflow =
+        fun command ->
+            // TODO: chain validation with further processing and return errors
+            let number' = PullRequestNumber.create command.number
+            let newSha' = SHA.create command.sha
 
-        let newSinBin = model.sinBin |> updateShaInSinBin number newSha
-        let modelWithNewSinBin = { model with sinBin = newSinBin }
+            let number, newSha =
+                match number', newSha' with
+                | Ok number, Ok newValue -> number, newValue
+                | Error error, _ -> failwithf "Validation failed: %s" error
+                | _, Error error -> failwithf "Validation failed: %s" error
 
-        match modelWithNewSinBin.activeBatch with
-        | Running batch ->
-            let abortRunningBatch, newQueue, newSinBin =
-                updateShaInRunningBatch number newSha batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+            let model = load()
 
-            if abortRunningBatch then
-                let newModel =
-                    { modelWithNewSinBin with
-                          queue = newQueue
-                          activeBatch = NoBatch
-                          sinBin = newSinBin }
-                save newModel
+            let newSinBin = model.sinBin |> updateShaInSinBin number newSha
+            let modelWithNewSinBin = { model with sinBin = newSinBin }
 
-                let pullRequests = batch |> RunnableBatch.toPullRequests
-                AbortRunningBatch(pullRequests, number)
+            match modelWithNewSinBin.activeBatch with
+            | Running batch ->
+                let abortRunningBatch, newQueue, newSinBin =
+                    updateShaInRunningBatch number newSha batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
-            else
-                let newModel =
-                    { modelWithNewSinBin with
-                          queue = newQueue
-                          sinBin = newSinBin }
-                save newModel
-                NoOp
-        | NoBatch ->
-            let newQueue, newSinBin =
-                updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+                if abortRunningBatch then
+                    let newModel =
+                        { modelWithNewSinBin with
+                              queue = newQueue
+                              activeBatch = NoBatch
+                              sinBin = newSinBin }
+                    save newModel
 
-            let newModel =
-                { modelWithNewSinBin with
-                      queue = newQueue
-                      sinBin = newSinBin }
-            save newModel
-            NoOp
+                    let pullRequests = batch |> RunnableBatch.toPullRequests
+                    Ok(AbortRunningBatch(pullRequests, number))
 
-        | Merging batch ->
-            let inMergingBatch = batch |> MergeableBatch.contains number
-
-            if inMergingBatch then
-                let newModel =
-                    { modelWithNewSinBin with activeBatch = NoBatch }
-                save newModel
-
-                let pullRequests = batch |> MergeableBatch.toPullRequests
-                AbortMergingBatch(pullRequests, number)
-            else
+                else
+                    let newModel =
+                        { modelWithNewSinBin with
+                              queue = newQueue
+                              sinBin = newSinBin }
+                    save newModel
+                    Ok NoChange
+            | NoBatch ->
                 let newQueue, newSinBin =
                     updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
 
@@ -407,43 +436,73 @@ module UpdatePullRequest =
                           queue = newQueue
                           sinBin = newSinBin }
                 save newModel
-                NoOp
+                Ok NoChange
+
+            | Merging batch ->
+                let inMergingBatch = batch |> MergeableBatch.contains number
+
+                if inMergingBatch then
+                    let newModel =
+                        { modelWithNewSinBin with activeBatch = NoBatch }
+                    save newModel
+
+                    let pullRequests = batch |> MergeableBatch.toPullRequests
+                    Ok(AbortMergingBatch(pullRequests, number))
+                else
+                    let newQueue, newSinBin =
+                        updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+                    let newModel =
+                        { modelWithNewSinBin with
+                              queue = newQueue
+                              sinBin = newSinBin }
+                    save newModel
+                    Ok NoChange
 
 module UpdateStatuses =
-    type UpdateStatusesResult = NoOp
-
-    type UpdateStatusesCommand =
+    // Types
+    type Command =
         { number: int
           sha: string
           statuses: List<string * string> }
 
-    let updateStatuses (load: Load) (save: Save) (command: UpdateStatusesCommand): UpdateStatusesResult =
-        // TODO: chain validation with further processing and return errors
-        let number' = PullRequestNumber.create command.number
-        let buildSha' = SHA.create command.sha
+    type Success = NoChange
 
-        let statuses' =
-            command.statuses
-            |> List.map CommitStatus.create
-            |> consolidateResultList
+    type Error = unit
 
-        let number, buildSha, statuses =
-            match number', buildSha', statuses' with
-            | Ok number, Ok buildSha, Ok statuses -> number, buildSha, statuses
-            | Error error, _, _ -> failwithf "Validation failed: %s" error
-            | _, Error error, _ -> failwithf "Validation failed: %s" error
-            | _, _, Error error -> failwithf "Validation failed: %s" error
+    type UpdateStatusResult = Result<Success, Error>
 
-        let model = load()
+    type UpdateStatusWorkflow = Command -> UpdateStatusResult
 
-        // check to see if we should pull the matching commit out of the "sin bin"
-        let newQueue, newSinBin =
-            updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
+    // Implementation
+    let updateStatuses (load: Load) (save: Save): UpdateStatusWorkflow =
+        fun command ->
+            // TODO: chain validation with further processing and return errors
+            let number' = PullRequestNumber.create command.number
+            let buildSha' = SHA.create command.sha
 
-        let newModel =
-            { model with
-                  queue = newQueue
-                  sinBin = newSinBin }
-        save newModel
+            let statuses' =
+                command.statuses
+                |> List.map CommitStatus.create
+                |> consolidateResultList
 
-        NoOp
+            let number, buildSha, statuses =
+                match number', buildSha', statuses' with
+                | Ok number, Ok buildSha, Ok statuses -> number, buildSha, statuses
+                | Error error, _, _ -> failwithf "Validation failed: %s" error
+                | _, Error error, _ -> failwithf "Validation failed: %s" error
+                | _, _, Error error -> failwithf "Validation failed: %s" error
+
+            let model = load()
+
+            // check to see if we should pull the matching commit out of the "sin bin"
+            let newQueue, newSinBin =
+                updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
+
+            let newModel =
+                { model with
+                      queue = newQueue
+                      sinBin = newSinBin }
+            save newModel
+
+            Ok NoChange
