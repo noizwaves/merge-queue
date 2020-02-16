@@ -397,7 +397,7 @@ let dequeue: Dequeue =
                           activeBatch = newBatch }
 
                 let result = DequeuedAndAbortRunningBatch(pullRequests, number)
-                Ok (result, newModel)
+                Ok(result, newModel)
 
             | Merging _ ->
                 Error RejectedInMergingBatch
@@ -454,7 +454,7 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureNoRetry(newModel, prs)
+                Ok(ReportBuildFailureNoRetry prs, newModel)
 
             | Some(first, second) ->
                 let queue, nextActive = failWithRetry first second model.queue
@@ -465,23 +465,23 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureWithRetry(newModel, prs)
+                Ok(ReportBuildFailureWithRetry prs, newModel)
 
         | Running succeeded, BuildMessage.Success targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
-            let result = PerformBatchMerge(newModel, pullRequests, targetHead)
 
-            result
+            Ok(PerformBatchMerge(pullRequests, targetHead), newModel)
+
         | NoBatch, BuildMessage.Failure ->
-            IngestBuildSuccess.NoChange
+            Error NotCurrentlyBuilding
         | Merging _, BuildMessage.Failure ->
-            IngestBuildSuccess.NoChange
+            Error NotCurrentlyBuilding
         | NoBatch, BuildMessage.Success _ ->
-            IngestBuildSuccess.NoChange
+            Error NotCurrentlyBuilding
         | Merging _, BuildMessage.Success _ ->
-            IngestBuildSuccess.NoChange
+            Error NotCurrentlyBuilding
 
 let ingestMergeUpdate: IngestMergeUpdate =
     fun message model ->
@@ -496,7 +496,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
 
             let pullRequests = merged |> MergeableBatch.toPullRequests
 
-            MergeComplete(newModel, pullRequests)
+            Ok(MergeComplete pullRequests, newModel)
         | Merging unmerged, MergeMessage.Failure ->
             let queue, batch = failMerge unmerged model.queue
             let pullRequests = unmerged |> MergeableBatch.toPullRequests
@@ -506,9 +506,9 @@ let ingestMergeUpdate: IngestMergeUpdate =
                       queue = queue
                       activeBatch = batch }
 
-            ReportMergeFailure(newModel, pullRequests)
+            Ok(ReportMergeFailure pullRequests, newModel)
         | _, _ ->
-            NoChange
+            Error NotCurrentlyMerging
 
 // "Properties"
 

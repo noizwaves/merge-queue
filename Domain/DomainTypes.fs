@@ -161,24 +161,25 @@ module DomainTypes =
         | Failure
 
     type IngestBuildSuccess =
-        | NoChange
-        | PerformBatchMerge of MergeQueue * List<PullRequest> * SHA
-        | ReportBuildFailureWithRetry of MergeQueue * List<PullRequest>
-        | ReportBuildFailureNoRetry of MergeQueue * List<PullRequest>
+        | PerformBatchMerge of List<PullRequest> * SHA
+        | ReportBuildFailureWithRetry of List<PullRequest>
+        | ReportBuildFailureNoRetry of List<PullRequest>
 
-    // always succeeds... for now
-    type IngestBuildUpdate = BuildMessage -> MergeQueue -> IngestBuildSuccess
+    type IngestBuildError = NotCurrentlyBuilding
+
+    type IngestBuildUpdate = DomainService<BuildMessage, IngestBuildSuccess, IngestBuildError>
 
     type MergeMessage =
         | Success
         | Failure
 
     type IngestMergeSuccess =
-        | NoChange // TODO: This should be an error: no merge in progress
-        | MergeComplete of MergeQueue * List<PullRequest>
-        | ReportMergeFailure of MergeQueue * List<PullRequest>
+        | MergeComplete of List<PullRequest>
+        | ReportMergeFailure of List<PullRequest>
 
-    type IngestMergeUpdate = MergeMessage -> MergeQueue -> IngestMergeSuccess
+    type IngestMergeError = NotCurrentlyMerging
+
+    type IngestMergeUpdate = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
 
     type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
 

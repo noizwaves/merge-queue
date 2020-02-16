@@ -116,8 +116,7 @@ module Enqueue =
     type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun model ->
-            save model
+        fun model -> save model
 
     // the final workflow
     let enqueue (load: Load) (save: Save): EnqueueWorkflow =
@@ -187,8 +186,7 @@ module Dequeue =
     type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue ->
-            save mergeQueue
+        fun mergeQueue -> save mergeQueue
 
     // the final workflow
     let dequeue (load: Load) (save: Save): DequeueWorkflow =
@@ -235,14 +233,13 @@ module StartBatch =
         { mergeQueue = mergeQueue }
 
     let private startBatchStep: StartBatchStep =
-        fun input -> input.mergeQueue |> startBatch ()
+        fun input -> input.mergeQueue |> startBatch()
 
     /// Save
     type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue ->
-            save mergeQueue
+        fun mergeQueue -> save mergeQueue
 
     // SMELL: what calls this? synchronous after some other call?
     // maybe make start batch private, and call it inside enqueue && updateStatus?
@@ -269,16 +266,14 @@ module IngestBuild =
         { message: UnvalidatedBuildMessage }
 
     // SMELL: Success type name clashes with Success constructor for BuildMessage
-    type IngestBuildSuccess =
-        | NoChange
-        | PerformBatchMerge of List<PullRequest> * SHA
-        | ReportBuildFailureWithRetry of List<PullRequest>
-        | ReportBuildFailureNoRetry of List<PullRequest>
+    type Success = IngestBuildSuccess
 
     // TODO: Validation error goes here
-    type Error = ValidationError of string
+    type Error =
+        | ValidationError of string
+        | IngestBuildError of IngestBuildError
 
-    type IngestBuildResult = Result<IngestBuildSuccess, Error>
+    type IngestBuildResult = Result<Success, Error>
 
     type IngestBuildWorkflow = Command -> IngestBuildResult
 
@@ -315,7 +310,7 @@ module IngestBuild =
               mergeQueue = model }
 
     /// Ingest
-    type private IngestBuildStep = StepInput -> DomainTypes.IngestBuildSuccess
+    type private IngestBuildStep = StepInput -> Result<IngestBuildSuccess * MergeQueue, IngestBuildError>
 
     let private ingestBuildStep: IngestBuildStep =
         fun input ->
@@ -325,47 +320,26 @@ module IngestBuild =
             ingestBuildUpdate message model
 
     /// Save
-    type private SaveMergeQueue = DomainTypes.IngestBuildSuccess -> unit
+    type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
         // SMELL: so much mapping
-        fun success ->
-            match success with
-            | DomainTypes.IngestBuildSuccess.NoChange ->
-                success |> ignore
-            | DomainTypes.IngestBuildSuccess.PerformBatchMerge(mergeQueue, _, _) ->
-                save mergeQueue
-            | DomainTypes.IngestBuildSuccess.ReportBuildFailureWithRetry(mergeQueue, _) ->
-                save mergeQueue
-            | DomainTypes.IngestBuildSuccess.ReportBuildFailureNoRetry(mergeQueue, _) ->
-                save mergeQueue
-
-    /// To command result type
-    let private toSuccess (success: DomainTypes.IngestBuildSuccess): IngestBuildSuccess =
-        // SMELL: so much mapping
-        match success with
-        | DomainTypes.IngestBuildSuccess.NoChange ->
-            IngestBuildSuccess.NoChange
-        | DomainTypes.IngestBuildSuccess.PerformBatchMerge(_, prs, sha) ->
-            IngestBuildSuccess.PerformBatchMerge(prs, sha)
-        | DomainTypes.IngestBuildSuccess.ReportBuildFailureWithRetry(_, prs) ->
-            IngestBuildSuccess.ReportBuildFailureWithRetry(prs)
-        | DomainTypes.IngestBuildSuccess.ReportBuildFailureNoRetry(_, prs) ->
-            IngestBuildSuccess.ReportBuildFailureNoRetry(prs)
+        fun mergeQueue -> save mergeQueue
 
     /// The final workflow
     let ingestBuildUpdate (load: Load) (save: Save): IngestBuildWorkflow =
         let validateCommand = validateCommand >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
+        let ingestBuildStep = ingestBuildStep >> Result.mapError IngestBuildError
         let saveMergeQueue = saveMergeQueue save
 
         fun command ->
             command
             |> validateCommand
             |> Result.map loadMergeQueue
-            |> Result.map ingestBuildStep
-            |> Common.tee (Result.map saveMergeQueue)
-            |> Result.map toSuccess
+            |> Result.bind ingestBuildStep
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module IngestMerge =
     // Types
@@ -377,12 +351,11 @@ module IngestMerge =
     type Command =
         { message: UnvalidatedMergeMessage }
 
-    type IngestMergeSuccess =
-        | NoChange // TODO: This should be an error: no merge in progress
-        | MergeComplete of List<PullRequest>
-        | ReportMergeFailure of List<PullRequest>
+    type Success = IngestMergeSuccess
 
-    type IngestMergeResult = IngestMergeSuccess
+    type Error = IngestMergeError of IngestMergeError
+
+    type IngestMergeResult = Result<IngestMergeSuccess, Error>
 
     type IngestMergeWorkflow = Command -> IngestMergeResult
 
@@ -417,42 +390,29 @@ module IngestMerge =
               mergeQueue = mergeQueue }
 
     // Ingest merge update
-    type private IngestMergeStep = StepInput -> DomainTypes.IngestMergeSuccess
+    type private IngestMergeStep = StepInput -> Result<IngestMergeSuccess * MergeQueue, IngestMergeError>
 
     let private ingestMergeStep: IngestMergeStep =
         fun input -> ingestMergeUpdate input.message input.mergeQueue
 
     // Save merge queue
-    type private SaveMergeQueue = DomainTypes.IngestMergeSuccess -> unit
+    type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun success ->
-            match success with
-            | DomainTypes.IngestMergeSuccess.NoChange ->
-                success |> ignore
-            | DomainTypes.IngestMergeSuccess.MergeComplete(mergeQueue, _) ->
-                save mergeQueue
-            | DomainTypes.IngestMergeSuccess.ReportMergeFailure(mergeQueue, _) ->
-                save mergeQueue
-
-    // and format the output
-    let private toSuccess (success: DomainTypes.IngestMergeSuccess): IngestMergeSuccess =
-        match success with
-        | DomainTypes.IngestMergeSuccess.NoChange ->
-            IngestMergeSuccess.NoChange
-        | DomainTypes.IngestMergeSuccess.MergeComplete(_, prs) ->
-            IngestMergeSuccess.MergeComplete prs
-        | DomainTypes.IngestMergeSuccess.ReportMergeFailure(_, prs) ->
-            IngestMergeSuccess.ReportMergeFailure prs
+        fun mergeQueue -> save mergeQueue
 
     let ingestMergeUpdate (load: Load) (save: Save): IngestMergeWorkflow =
+        let loadMergeQueue = loadMergeQueue load
+        let ingestMergeStep = ingestMergeStep >> Result.mapError IngestMergeError
+        let saveMergeQueue = saveMergeQueue save
+
         fun command ->
             command
-            |> validateCommand
-            |> loadMergeQueue load
-            |> ingestMergeStep
-            |> Common.tee (saveMergeQueue save)
-            |> toSuccess
+            |> Common.switch validateCommand
+            |> Result.map loadMergeQueue
+            |> Result.bind ingestMergeStep
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module UpdatePullRequest =
     // Types

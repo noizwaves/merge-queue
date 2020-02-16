@@ -155,14 +155,14 @@ let finish (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | Ok IngestBuildSuccess.NoChange -> "NoOp"
         | Ok(PerformBatchMerge _) ->
             // HACK: do the merge if we should it...
             ingestMergeUpdate' { message = (UnvalidatedMergeMessage.Success) } |> ignore
             "Batch finished"
         | Ok(ReportBuildFailureWithRetry _) -> "Batch failed"
         | Ok(ReportBuildFailureNoRetry _) -> "Batch failed"
-        | Error(IngestBuild.Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(IngestBuildError NotCurrentlyBuilding) -> "Merge queue is not running a build, so nothing to update"
 
     response
     |> toJson
