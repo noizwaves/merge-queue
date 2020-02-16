@@ -151,13 +151,7 @@ let finish (load: Load) (save: Save) _request: WebPart =
     let ingestBuildUpdate' = ingestBuildUpdate load save
     let ingestMergeUpdate' = ingestMergeUpdate load save
 
-    // TODO: this is a hack as the finish command does not perform validation atm
-    let makeSha value =
-        match SHA.create value with
-        | Ok sha -> sha
-        | Error error -> failwithf "Failed to create SHA: %s" error
-
-    let result = ingestBuildUpdate' { message = BuildMessage.Success(makeSha "12345678") }
+    let result = ingestBuildUpdate' { message = BuildMessage.Success "12345678" }
 
     let response =
         match result with
@@ -168,7 +162,7 @@ let finish (load: Load) (save: Save) _request: WebPart =
             "Batch finished"
         | Ok (ReportBuildFailureWithRetry _) -> "Batch failed"
         | Ok (ReportBuildFailureNoRetry _) -> "Batch failed"
-        | Error _ -> failwith "Unhandled error"
+        | Error (IngestBuild.Error.ValidationError help)  -> sprintf "Validation error: %s" help
 
     response
     |> toJson

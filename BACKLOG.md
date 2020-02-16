@@ -27,6 +27,7 @@ Done
     1.  GOAL(?): domain functions are not unwrapping types
 
 Backlog
+1.  codify the pattern of domain services returning a new Merge Queue, seems like a Command success type thing
 1.  solidify ubiquitous language around running (building || merging) batches
 1.  view where my PR is
 1.  add assertions on the thrown away results

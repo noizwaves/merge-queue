@@ -81,7 +81,7 @@ let private runningBatchOfTwo: MergeQueue =
 let private mergingBatchOfTwo: MergeQueue =
     runningBatchOfTwo
     |> applyCommands (fun load save ->
-        ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
+        ingestBuildUpdate load save { message = BuildMessage.Success "12345678" })
     |> snd
 
 [<Fact>]
@@ -455,7 +455,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
     let result, state =
         runningQueue
         |> applyCommands (fun load save ->
-            ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
+            ingestBuildUpdate load save { message = BuildMessage.Success "12345678" })
 
     let expected: IngestBuildResult = Ok(PerformBatchMerge([ one; two ], (makeSha "12345678")))
     result |> should equal expected
@@ -538,7 +538,7 @@ let ``Recieve message that build succeeded when no running batch``() =
     let result, state =
         idleQueue
         |> applyCommands (fun load save ->
-            ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
+            ingestBuildUpdate load save { message = BuildMessage.Success "12345678" })
 
     let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
     result |> should equal expected
@@ -565,7 +565,7 @@ let ``Recieve message that build succeeded when batch is being merged``() =
     let (result, state) =
         mergingQueue
         |> applyCommands (fun load save ->
-            ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") })
+            ingestBuildUpdate load save { message = BuildMessage.Success "12345678" })
 
     let expected: IngestBuildResult = Ok IngestBuildSuccess.NoChange
     result |> should equal expected
@@ -588,7 +588,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let finishedQueue =
         runningQueueDepthThree
         |> applyCommands (fun load save ->
-            ingestBuildUpdate load save { message = BuildMessage.Success(makeSha "12345678") } |> ignore
+            ingestBuildUpdate load save { message = BuildMessage.Success "12345678" } |> ignore
             ingestMergeUpdate load save { message = MergeMessage.Success })
         |> snd
 
