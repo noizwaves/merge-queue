@@ -367,10 +367,10 @@ let enqueue: Enqueue =
             Error AlreadyEnqueued
         | false, false, false, Choice2Of2 naughty ->
             let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-            Ok(EnqueueSuccess.SinBinned(newModel))
+            Ok(EnqueueSuccess.SinBinned, newModel)
         | false, false, false, Choice1Of2 passing ->
             let newModel = { model with queue = AttemptQueue.append passing model.queue }
-            Ok(EnqueueSuccess.Enqueued(newModel))
+            Ok(EnqueueSuccess.Enqueued, newModel)
 
 let dequeue: Dequeue =
     fun number model ->
@@ -396,8 +396,8 @@ let dequeue: Dequeue =
                           queue = newQueue
                           activeBatch = newBatch }
 
-                let result = DequeuedAndAbortRunningBatch(newModel, pullRequests, number)
-                Ok result
+                let result = DequeuedAndAbortRunningBatch(pullRequests, number)
+                Ok (result, newModel)
 
             | Merging _ ->
                 Error RejectedInMergingBatch
@@ -409,18 +409,18 @@ let dequeue: Dequeue =
         | _, true, _ ->
             let newQueue = model.queue |> AttemptQueue.removeByNumber number
             let newModel = { model with queue = newQueue }
-            Ok(Dequeued newModel)
+            Ok(Dequeued, newModel)
 
         | _, _, true ->
             let newSinBin = model.sinBin |> SinBin.removeByNumber number
             let newModel = { model with sinBin = newSinBin }
-            Ok(Dequeued newModel)
+            Ok(Dequeued, newModel)
 
         | false, false, false ->
             Error(NotFound)
 
 let startBatch: StartBatch =
-    fun model ->
+    fun _ model ->
         match model.activeBatch, model.queue with
         | Running _, _ -> Error AlreadyRunning
         | Merging _, _ -> Error AlreadyRunning
@@ -434,7 +434,7 @@ let startBatch: StartBatch =
                           queue = remaining }
 
                 let pullRequests = batch |> RunnableBatch.toPullRequests
-                Ok(PerformBatchBuild(newModel, pullRequests))
+                Ok(PerformBatchBuild(pullRequests), newModel)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
                 // SMELL: how could execution get here and result is empty?

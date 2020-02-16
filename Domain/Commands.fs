@@ -74,9 +74,8 @@ module Enqueue =
           sha: string
           statuses: List<string * string> }
 
-    type Success =
-        | Enqueued
-        | SinBinned
+    // TODO: convert to some kind of command DTO instead of using the domain type?
+    type Success = EnqueueSuccess
 
     type Error =
         | ValidationError of string
@@ -108,29 +107,17 @@ module Enqueue =
               mergeQueue = model }
 
     /// Enqueue step
-    type private EnqueueStep = StepInput -> Result<EnqueueSuccess, EnqueueError>
+    type private EnqueueStep = StepInput -> Result<EnqueueSuccess * MergeQueue, EnqueueError>
 
     let private enqueueStep: EnqueueStep =
-        fun input -> Domain.enqueue input.pullRequest input.mergeQueue
+        fun input -> input.mergeQueue |> Domain.enqueue input.pullRequest
 
     /// Save changes to the MergeQueue
-    type private SaveMergeQueue = EnqueueSuccess -> unit
+    type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun result ->
-            match result with
-            | EnqueueSuccess.Enqueued model ->
-                save model
-            | EnqueueSuccess.SinBinned model ->
-                save model
-
-    /// Convert the domain result to a workflow result
-    let private toSuccess (value: EnqueueSuccess): Success =
-        match value with
-        | EnqueueSuccess.SinBinned _ ->
-            Success.SinBinned
-        | EnqueueSuccess.Enqueued _ ->
-            Success.Enqueued
+        fun model ->
+            save model
 
     // the final workflow
     let enqueue (load: Load) (save: Save): EnqueueWorkflow =
@@ -145,17 +132,15 @@ module Enqueue =
             |> validatePullRequest
             |> Result.map loadMergeQueue
             |> Common.bind enqueueStep
-            |> Result.map (Common.tee saveMergeQueue)
-            |> Result.map toSuccess
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module Dequeue =
     // Types
     type Command =
         { number: int }
 
-    type Success =
-        | Dequeued
-        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber // TODO: make these DTOs?
+    type Success = DequeueSuccess
 
     type Error =
         | ValidationError of string
@@ -193,26 +178,17 @@ module Dequeue =
               mergeQueue = mergeQueue }
 
     /// Dequeue step
-    type private DequeueStep = StepInput -> Result<DequeueSuccess, DequeueError>
+    type private DequeueStep = StepInput -> Result<DequeueSuccess * MergeQueue, DequeueError>
 
     let private dequeueStep: DequeueStep =
-        fun input -> Domain.dequeue input.number input.mergeQueue
+        fun input -> input.mergeQueue |> Domain.dequeue input.number
 
     /// Save
-    type private SaveMergeQueue = DequeueSuccess -> unit
+    type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun success ->
-            match success with
-            | DequeueSuccess.Dequeued(mergeQueue) ->
-                save mergeQueue
-            | DequeueSuccess.DequeuedAndAbortRunningBatch(mergeQueue, _, _) ->
-                save mergeQueue
-
-    let private toSuccess (success: DequeueSuccess): Success =
-        match success with
-        | DequeueSuccess.Dequeued(_) -> Dequeued
-        | DequeueSuccess.DequeuedAndAbortRunningBatch(_, prs, number) -> DequeuedAndAbortRunningBatch(prs, number)
+        fun mergeQueue ->
+            save mergeQueue
 
     // the final workflow
     let dequeue (load: Load) (save: Save): DequeueWorkflow =
@@ -226,14 +202,14 @@ module Dequeue =
             |> validateDequeue
             |> Result.map loadMergeQueue
             |> Common.bind dequeueStep
-            |> Common.tee (Result.map saveMergeQueue)
-            |> Result.map toSuccess
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module StartBatch =
     // Types
     type Command = unit
 
-    type Success = PerformBatchBuild of List<PullRequest>
+    type Success = StartBatchSuccess
 
     type Error = StartBatchError of StartBatchError
 
@@ -253,27 +229,20 @@ module StartBatch =
     type private StepInput =
         { mergeQueue: MergeQueue }
 
-    type private StartBatchStep = StepInput -> Result<StartBatchSuccess, StartBatchError>
+    type private StartBatchStep = StepInput -> Result<StartBatchSuccess * MergeQueue, StartBatchError>
 
     let private toInput (mergeQueue: MergeQueue): StepInput =
         { mergeQueue = mergeQueue }
 
     let private startBatchStep: StartBatchStep =
-        fun input -> input.mergeQueue |> startBatch
+        fun input -> input.mergeQueue |> startBatch ()
 
     /// Save
-    type private SaveMergeQueue = StartBatchSuccess -> unit
+    type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun value ->
-            match value with
-            | StartBatchSuccess.PerformBatchBuild(mergeQueue, _) ->
-                save mergeQueue
-
-    /// and make the final success
-    let private toSuccess (value: StartBatchSuccess): Success =
-        match value with
-        | StartBatchSuccess.PerformBatchBuild(_, prs) -> PerformBatchBuild prs
+        fun mergeQueue ->
+            save mergeQueue
 
     // SMELL: what calls this? synchronous after some other call?
     // maybe make start batch private, and call it inside enqueue && updateStatus?
@@ -286,8 +255,8 @@ module StartBatch =
             command
             |> Common.switch (loadMergeQueue >> toInput)
             |> Common.bind startBatchStep
-            |> Common.tee (Result.map saveMergeQueue)
-            |> Result.map toSuccess
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module IngestBuild =
     // Types

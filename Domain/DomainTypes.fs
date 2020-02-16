@@ -118,39 +118,41 @@ module DomainTypes =
     type UpdateStatusesInSinBin = PullRequestNumber -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
 
 
-
     // Command-land or use case land down here?
+    type DomainService<'a, 'b, 'error> = 'a -> MergeQueue -> Result<'b * MergeQueue, 'error>
+
+
     type EnqueueSuccess =
-        | Enqueued of MergeQueue
-        | SinBinned of MergeQueue
+        | Enqueued
+        | SinBinned
 
     type EnqueueError =
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
 
-    type Enqueue = PullRequest -> MergeQueue -> Result<EnqueueSuccess, EnqueueError>
+    type Enqueue = DomainService<PullRequest, EnqueueSuccess, EnqueueError>
 
     // TODO: make a type for AbortedBatch
     // TODO: Remove PullRequestNumber from success tuple
     type DequeueSuccess =
-        | Dequeued of MergeQueue
-        | DequeuedAndAbortRunningBatch of MergeQueue * List<PullRequest> * PullRequestNumber
+        | Dequeued
+        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
 
     type DequeueError =
         | RejectedInMergingBatch
         | NotFound
 
-    type Dequeue = PullRequestNumber -> MergeQueue -> Result<DequeueSuccess, DequeueError>
+    type Dequeue = DomainService<PullRequestNumber, DequeueSuccess, DequeueError>
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command
-    type StartBatchSuccess = PerformBatchBuild of MergeQueue * List<PullRequest>
+    type StartBatchSuccess = PerformBatchBuild of List<PullRequest>
 
     type StartBatchError =
         | AlreadyRunning
         | EmptyQueue
 
-    type StartBatch = MergeQueue -> Result<StartBatchSuccess, StartBatchError>
+    type StartBatch = DomainService<unit, StartBatchSuccess, StartBatchError>
 
     // TODO: make names less general, more specific to build operation
     // it's actually an update, not a message
