@@ -510,6 +510,62 @@ let ingestMergeUpdate: IngestMergeUpdate =
         | _, _ ->
             Error NotCurrentlyMerging
 
+let updateSha: UpdatePullRequest =
+    fun (number, newSha) model ->
+        let newSinBin = model.sinBin |> updateShaInSinBin number newSha
+        let modelWithNewSinBin = { model with sinBin = newSinBin }
+
+        match modelWithNewSinBin.activeBatch with
+        | Running batch ->
+            let abortRunningBatch, newQueue, newSinBin =
+                updateShaInRunningBatch number newSha batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+            if abortRunningBatch then
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          activeBatch = NoBatch
+                          sinBin = newSinBin }
+
+                let pullRequests = batch |> RunnableBatch.toPullRequests
+                AbortRunningBatch(pullRequests, number), newModel
+
+            else
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          sinBin = newSinBin }
+                NoChange, newModel
+        | NoBatch ->
+            let newQueue, newSinBin =
+                updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+            let newModel =
+                { modelWithNewSinBin with
+                      queue = newQueue
+                      sinBin = newSinBin }
+            NoChange, newModel
+
+        | Merging batch ->
+            let inMergingBatch = batch |> MergeableBatch.contains number
+
+            if inMergingBatch then
+                let newModel =
+                    { modelWithNewSinBin with activeBatch = NoBatch }
+
+                let pullRequests = batch |> MergeableBatch.toPullRequests
+                AbortMergingBatch(pullRequests, number), newModel
+            else
+                let newQueue, newSinBin =
+                    updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
+
+                let newModel =
+                    { modelWithNewSinBin with
+                          queue = newQueue
+                          sinBin = newSinBin }
+
+                NoChange, newModel
+
 // "Properties"
 
 // Should these return DTOs?

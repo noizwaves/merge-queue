@@ -649,7 +649,7 @@ let ``The branch head for an enqueued PR is updated``() =
                 { number = 1
                   sha = "10101010" })
 
-    let expected: UpdatePullRequestResult = Ok NoChange
+    let expected: UpdatePullRequestResult = Ok UpdatePullRequestSuccess.NoChange
     result |> should equal expected
 
     state
@@ -695,7 +695,7 @@ let ``The branch head for a unknown PR is updated when batch is running``() =
                 { number = 404
                   sha = "40400404" })
 
-    let expected: UpdatePullRequestResult = Ok NoChange
+    let expected: UpdatePullRequestResult = Ok UpdatePullRequestSuccess.NoChange
     result |> should equal expected
 
     state |> should equal running
@@ -714,7 +714,7 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
                 { number = 333
                   sha = "30303030" })
 
-    let expected: UpdatePullRequestResult = Ok NoChange
+    let expected: UpdatePullRequestResult = Ok UpdatePullRequestSuccess.NoChange
     result |> should equal expected
 
     state
@@ -740,7 +740,7 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
                 { number = 333
                   sha = "30303030" })
 
-    let expected: UpdatePullRequestResult = Ok NoChange
+    let expected: UpdatePullRequestResult = Ok UpdatePullRequestSuccess.NoChange
     result |> should equal expected
 
     state

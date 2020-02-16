@@ -420,88 +420,74 @@ module UpdatePullRequest =
         { number: int
           sha: string }
 
-    // TODO: Expand with the other successful outcomes, like moved to Sin Bin
-    type Success =
-        | NoChange
-        | AbortRunningBatch of List<PullRequest> * PullRequestNumber
-        | AbortMergingBatch of List<PullRequest> * PullRequestNumber
+    type Success = UpdatePullRequestSuccess
 
-    type UpdatePullRequestResult = Result<Success, unit>
+    type Error = ValidationError of string
+
+    type UpdatePullRequestResult = Result<Success, Error>
 
     type UpdatePullRequestWorkflow = Command -> UpdatePullRequestResult
+
+    // Validation
+    type private ValidatedCommand =
+        { number: PullRequestNumber
+          sha: SHA }
+
+    type private ValidateCommand = Command -> Result<ValidatedCommand, string>
+
+    let private validateCommand: ValidateCommand =
+        fun command ->
+            let number' = PullRequestNumber.create command.number
+            let newSha' = SHA.create command.sha
+
+            match number', newSha' with
+            | Ok number, Ok newValue ->
+                Ok
+                    { number = number
+                      sha = newValue }
+            | Error error, _ ->
+                Error(sprintf "Validation failed: %s" error)
+            | _, Error error ->
+                Error(sprintf "Validation failed: %s" error)
+
+    // Load merge queue
+    type private StepInput =
+        { update: ValidatedCommand
+          mergeQueue: MergeQueue }
+
+    type private LoadMergeQueue = ValidatedCommand -> StepInput
+
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        fun command ->
+            let mergeQueue = load()
+            { update = command
+              mergeQueue = mergeQueue }
+
+    // Update the SHA
+    type private UpdateStep = StepInput -> (UpdatePullRequestSuccess * MergeQueue)
+
+    let private updateStep: UpdateStep =
+        fun input -> input.mergeQueue |> updateSha (input.update.number, input.update.sha)
+
+    // Save merge queue
+    type private SaveMergeQueue = MergeQueue -> unit
+
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun mergeQueue -> save mergeQueue
 
     // Implementation
     let updatePullRequestSha (load: Load) (save: Save): UpdatePullRequestWorkflow =
         fun command ->
-            // TODO: chain validation with further processing and return errors
-            let number' = PullRequestNumber.create command.number
-            let newSha' = SHA.create command.sha
+            let validateCommand = validateCommand >> Result.mapError ValidationError
+            let loadMergeQueue = loadMergeQueue load
+            let saveMergeQueue = saveMergeQueue save
 
-            let number, newSha =
-                match number', newSha' with
-                | Ok number, Ok newValue -> number, newValue
-                | Error error, _ -> failwithf "Validation failed: %s" error
-                | _, Error error -> failwithf "Validation failed: %s" error
-
-            let model = load()
-
-            let newSinBin = model.sinBin |> updateShaInSinBin number newSha
-            let modelWithNewSinBin = { model with sinBin = newSinBin }
-
-            match modelWithNewSinBin.activeBatch with
-            | Running batch ->
-                let abortRunningBatch, newQueue, newSinBin =
-                    updateShaInRunningBatch number newSha batch modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-                if abortRunningBatch then
-                    let newModel =
-                        { modelWithNewSinBin with
-                              queue = newQueue
-                              activeBatch = NoBatch
-                              sinBin = newSinBin }
-                    save newModel
-
-                    let pullRequests = batch |> RunnableBatch.toPullRequests
-                    Ok(AbortRunningBatch(pullRequests, number))
-
-                else
-                    let newModel =
-                        { modelWithNewSinBin with
-                              queue = newQueue
-                              sinBin = newSinBin }
-                    save newModel
-                    Ok NoChange
-            | NoBatch ->
-                let newQueue, newSinBin =
-                    updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-                let newModel =
-                    { modelWithNewSinBin with
-                          queue = newQueue
-                          sinBin = newSinBin }
-                save newModel
-                Ok NoChange
-
-            | Merging batch ->
-                let inMergingBatch = batch |> MergeableBatch.contains number
-
-                if inMergingBatch then
-                    let newModel =
-                        { modelWithNewSinBin with activeBatch = NoBatch }
-                    save newModel
-
-                    let pullRequests = batch |> MergeableBatch.toPullRequests
-                    Ok(AbortMergingBatch(pullRequests, number))
-                else
-                    let newQueue, newSinBin =
-                        updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
-
-                    let newModel =
-                        { modelWithNewSinBin with
-                              queue = newQueue
-                              sinBin = newSinBin }
-                    save newModel
-                    Ok NoChange
+            command
+            |> validateCommand
+            |> Result.map loadMergeQueue
+            |> Result.map updateStep
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module UpdateStatuses =
     // Types

@@ -181,7 +181,13 @@ module DomainTypes =
 
     type IngestMergeUpdate = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
 
-    type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
+    // TODO: Expand with the other successful outcomes, like moved to Sin Bin
+    type UpdatePullRequestSuccess =
+        | NoChange
+        | AbortRunningBatch of List<PullRequest> * PullRequestNumber
+        | AbortMergingBatch of List<PullRequest> * PullRequestNumber
+
+    type UpdatePullRequest = PullRequestNumber * SHA -> (MergeQueue -> UpdatePullRequestSuccess * MergeQueue)
 
     type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
 
