@@ -119,10 +119,7 @@ module DomainTypes =
 
 
 
-    // Command-land or use case land down here
-
-    // State is really just convenience for AttemptQueue * SinBin
-    // State only changes some of the time...
+    // Command-land or use case land down here?
     type EnqueueSuccess =
         | Enqueued of MergeQueue
         | SinBinned of MergeQueue
@@ -133,9 +130,17 @@ module DomainTypes =
         
     type Enqueue = PullRequest -> MergeQueue -> Result<EnqueueSuccess, EnqueueError>
 
-    // State is really just convenience for AttemptQueue * SinBin
-    // State only changes some of the time
-    type Dequeue = PullRequestNumber -> MergeQueue -> MergeQueue
+    // TODO: make a type for AbortedBatch
+    // TODO: Remove PullRequestNumber from success tuple
+    type DequeueSuccess =
+        | Dequeued of MergeQueue
+        | DequeuedAndAbortRunningBatch of MergeQueue * List<PullRequest> * PullRequestNumber
+        
+    type DequeueError =
+        | RejectedInMergingBatch
+        | NotFound
+    
+    type Dequeue = PullRequestNumber -> MergeQueue -> Result<DequeueSuccess, DequeueError>
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command

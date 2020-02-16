@@ -293,7 +293,7 @@ let ``Dequeue an unknown Pull Request``() =
     let result, state =
         idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404 })
 
-    let expected: DequeueResult = Error Error.NotFound
+    let expected: DequeueResult = Error (Error.DequeueError DequeueError.NotFound)
     result |> should equal expected
 
     state
@@ -352,7 +352,7 @@ let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
         mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
 
-    let expected: DequeueResult = Error Error.RejectedInMergingBatch
+    let expected: DequeueResult = Error (Error.DequeueError DequeueError.RejectedInMergingBatch)
     result |> should equal expected
 
     state |> should equal mergingBatchOfTwo

@@ -369,6 +369,53 @@ let enqueue: Enqueue =
             let newModel = { model with queue = AttemptQueue.append passing model.queue }
             Ok(EnqueueSuccess.Enqueued(newModel))
 
+let dequeue: Dequeue =
+    fun number model ->
+        let isCurrent = model.activeBatch |> ActiveBatch.contains number
+        let isEnqueued = model.queue |> AttemptQueue.contains number
+        let isSinBinned = model.sinBin |> SinBin.contains number
+
+        match isCurrent, isEnqueued, isSinBinned with
+        | true, _, _ ->
+            match model.activeBatch with
+            | Running(RunnableBatch batch) ->
+                let newQueue =
+                    model.queue
+                    |> AttemptQueue.prepend batch
+                    |> AttemptQueue.removeByNumber number
+
+                let newBatch = NoBatch
+
+                let pullRequests = batch |> Batch.toPullRequests
+
+                let newModel =
+                    { model with
+                          queue = newQueue
+                          activeBatch = newBatch }
+
+                let result = DequeuedAndAbortRunningBatch(newModel, pullRequests, number)
+                Ok result
+
+            | Merging _ ->
+                Error RejectedInMergingBatch
+
+            | NoBatch ->
+                // SMELL: this is an impossible branch to get into...
+                failwith "PullRequest cannot be in an empty batch"
+
+        | _, true, _ ->
+            let newQueue = model.queue |> AttemptQueue.removeByNumber number
+            let newModel = { model with queue = newQueue }
+            Ok(Dequeued newModel)
+
+        | _, _, true ->
+            let newSinBin = model.sinBin |> SinBin.removeByNumber number
+            let newModel = { model with sinBin = newSinBin }
+            Ok(Dequeued newModel)
+
+        | false, false, false ->
+            Error(NotFound)
+
 // "Properties"
 
 // Should these return DTOs?

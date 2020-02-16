@@ -121,8 +121,8 @@ let dequeue (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Dequeued) -> "Dequeued"
         | Ok(Success.DequeuedAndAbortRunningBatch _) -> "Dequeued (a running batch was cancelled)"
-        | Error(Dequeue.Error.RejectedInMergingBatch) -> "Rejected (in a merging batch)"
-        | Error(Dequeue.Error.NotFound) -> "Not found"
+        | Error(Dequeue.Error.DequeueError DequeueError.RejectedInMergingBatch) -> "Rejected (in a merging batch)"
+        | Error(Dequeue.Error.DequeueError DequeueError.NotFound) -> "Not found"
         | Error(Dequeue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response

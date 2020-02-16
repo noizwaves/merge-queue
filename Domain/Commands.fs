@@ -74,13 +74,13 @@ module Enqueue =
           sha: string
           statuses: List<string * string> }
 
-    type Error =
-        | ValidationError of string
-        | EnqueueError of EnqueueError
-
     type Success =
         | Enqueued
         | SinBinned
+
+    type Error =
+        | ValidationError of string
+        | EnqueueError of EnqueueError
 
     type EnqueueResult = Result<Success, Error>
 
@@ -152,12 +152,9 @@ module Dequeue =
         | Dequeued
         | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
 
-    // TODO: Validation error
-    // TODO: Move Rejected... & NotFound into domain and lift to DequeueError
     type Error =
         | ValidationError of string
-        | RejectedInMergingBatch
-        | NotFound
+        | DequeueError of DequeueError
 
     type DequeueResult = Result<Success, Error>
 
@@ -182,71 +179,38 @@ module Dequeue =
 
     /// Dequeue step
     /// TODO: Make `MergeQueue * PullRequestNumber` a named record type
-    type private DequeueStep = MergeQueue * ValidatedDequeue -> Result<Success * MergeQueue, Error>
+    type private DequeueStep = MergeQueue * ValidatedDequeue -> Result<DequeueSuccess, DequeueError>
 
     let private dequeueStep: DequeueStep =
-        fun (model, validated) ->
-            let number = validated.number
-
-            let isCurrent = model.activeBatch |> ActiveBatch.contains number
-            let isEnqueued = model.queue |> AttemptQueue.contains number
-            let isSinBinned = model.sinBin |> SinBin.contains number
-
-            match isCurrent, isEnqueued, isSinBinned with
-            | true, _, _ ->
-                match model.activeBatch with
-                | Running(RunnableBatch batch) ->
-                    let newQueue =
-                        model.queue
-                        |> AttemptQueue.prepend batch
-                        |> AttemptQueue.removeByNumber number
-
-                    let newBatch = NoBatch
-
-                    let pullRequests = batch |> Batch.toPullRequests
-                    let result = DequeuedAndAbortRunningBatch(pullRequests, number)
-
-                    let newModel =
-                        { model with
-                              queue = newQueue
-                              activeBatch = newBatch }
-                    Ok(result, newModel)
-
-                | Merging _ ->
-                    Error RejectedInMergingBatch
-
-                | NoBatch ->
-                    // SMELL: this is an impossible branch to get into...
-                    failwith "PullRequest cannot be in an empty batch"
-
-            | _, true, _ ->
-                let newQueue = model.queue |> AttemptQueue.removeByNumber number
-                Ok(Dequeued, { model with queue = newQueue })
-
-            | _, _, true ->
-                let newSinBin = model.sinBin |> SinBin.removeByNumber number
-                Ok(Dequeued, { model with sinBin = newSinBin })
-
-            | false, false, false ->
-                Error(NotFound)
+        fun (model, validated) -> Domain.dequeue validated.number model
 
     /// Save
     type private SaveMergeQueue = MergeQueue -> unit
+
+    let private extractMergeQueue (success: DequeueSuccess): MergeQueue =
+        match success with
+        | DequeueSuccess.Dequeued(mergeQueue) -> mergeQueue
+        | DequeueSuccess.DequeuedAndAbortRunningBatch(mergeQueue, _, _) -> mergeQueue
+
+    let private toSuccess (success: DequeueSuccess): Success =
+        match success with
+        | DequeueSuccess.Dequeued(_) -> Dequeued
+        | DequeueSuccess.DequeuedAndAbortRunningBatch(_, prs, number) -> DequeuedAndAbortRunningBatch(prs, number)
 
     // the final workflow
     let dequeue (load: Load) (save: Save): DequeueWorkflow =
         let validateDequeue = validateDequeue >> Result.mapError ValidationError
         let loadMergeQueue = load
-        let dequeueStep: DequeueStep = dequeueStep
-        let saveMergeQueue: SaveMergeQueue = save
+        let dequeueStep = dequeueStep >> Result.mapError DequeueError
+        let saveMergeQueue = save
 
         fun command ->
             command
             |> validateDequeue
             |> Common.carrySecond loadMergeQueue
             |> Common.bind dequeueStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map (extractMergeQueue >> saveMergeQueue))
+            |> Result.map toSuccess
 
 module StartBatch =
     // Types
