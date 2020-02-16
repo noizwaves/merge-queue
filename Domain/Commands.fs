@@ -359,6 +359,7 @@ module IngestBuild =
     type private SaveMergeQueue = DomainTypes.IngestBuildSuccess -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
+        // SMELL: so much mapping
         fun success ->
             match success with
             | DomainTypes.IngestBuildSuccess.NoChange ->
@@ -372,6 +373,7 @@ module IngestBuild =
 
     /// To command result type
     let private toSuccess (success: DomainTypes.IngestBuildSuccess): IngestBuildSuccess =
+        // SMELL: so much mapping
         match success with
         | DomainTypes.IngestBuildSuccess.NoChange ->
             IngestBuildSuccess.NoChange
@@ -399,56 +401,89 @@ module IngestBuild =
 module IngestMerge =
     // Types
     // TODO: This should be a DTO that represents the Batch merged result
-    type MergeMessage =
+    type UnvalidatedMergeMessage =
         | Success
         | Failure
 
     type Command =
-        { message: MergeMessage }
+        { message: UnvalidatedMergeMessage }
 
     type IngestMergeSuccess =
-        | NoChange
+        | NoChange // TODO: This should be an error: no merge in progress
         | MergeComplete of List<PullRequest>
         | ReportMergeFailure of List<PullRequest>
 
-    type Error = unit
-
-    type IngestMergeResult = Result<IngestMergeSuccess, Error>
+    type IngestMergeResult = IngestMergeSuccess
 
     type IngestMergeWorkflow = Command -> IngestMergeResult
 
     // Implementation
+
+    // Validation
+    type private ValidatedCommand =
+        { message: MergeMessage }
+
+    type private ValidateCommand = Command -> ValidatedCommand
+
+    let private validateCommand: ValidateCommand =
+        fun command ->
+            let message =
+                match command.message with
+                | Success -> MergeMessage.Success
+                | Failure -> MergeMessage.Failure
+
+            { message = message }
+
+    // Load merge queue
+    type private StepInput =
+        { message: MergeMessage
+          mergeQueue: MergeQueue }
+
+    type private LoadMergeQueue = ValidatedCommand -> StepInput
+
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        fun command ->
+            let mergeQueue = load()
+            { message = command.message
+              mergeQueue = mergeQueue }
+
+    // Ingest merge update
+    type private IngestMergeStep = StepInput -> DomainTypes.IngestMergeSuccess
+
+    let private ingestMergeStep: IngestMergeStep =
+        fun input -> ingestMergeUpdate input.message input.mergeQueue
+
+    // Save merge queue
+    type private SaveMergeQueue = DomainTypes.IngestMergeSuccess -> unit
+
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun success ->
+            match success with
+            | DomainTypes.IngestMergeSuccess.NoChange ->
+                success |> ignore
+            | DomainTypes.IngestMergeSuccess.MergeComplete(mergeQueue, _) ->
+                save mergeQueue
+            | DomainTypes.IngestMergeSuccess.ReportMergeFailure(mergeQueue, _) ->
+                save mergeQueue
+
+    // and format the output
+    let private toSuccess (success: DomainTypes.IngestMergeSuccess): IngestMergeSuccess =
+        match success with
+        | DomainTypes.IngestMergeSuccess.NoChange ->
+            IngestMergeSuccess.NoChange
+        | DomainTypes.IngestMergeSuccess.MergeComplete(_, prs) ->
+            IngestMergeSuccess.MergeComplete prs
+        | DomainTypes.IngestMergeSuccess.ReportMergeFailure(_, prs) ->
+            IngestMergeSuccess.ReportMergeFailure prs
+
     let ingestMergeUpdate (load: Load) (save: Save): IngestMergeWorkflow =
         fun command ->
-            let message = command.message
-
-            let model = load()
-            match model.activeBatch, message with
-            | Merging merged, MergeMessage.Success ->
-                let queue, batch = completeMerge merged model.queue
-
-                let newModel =
-                    { model with
-                          queue = queue
-                          activeBatch = batch }
-                save newModel
-
-                let pullRequests = merged |> MergeableBatch.toPullRequests
-
-                Ok(MergeComplete pullRequests)
-            | Merging unmerged, MergeMessage.Failure ->
-                let queue, batch = failMerge unmerged model.queue
-                let pullRequests = unmerged |> MergeableBatch.toPullRequests
-
-                let newModel =
-                    { model with
-                          queue = queue
-                          activeBatch = batch }
-                save newModel
-
-                Ok(ReportMergeFailure pullRequests)
-            | _, _ ->
-                Ok NoChange
+            command
+            |> validateCommand
+            |> loadMergeQueue load
+            |> ingestMergeStep
+            |> Common.tee (saveMergeQueue save)
+            |> toSuccess
 
 module UpdatePullRequest =
     // Types

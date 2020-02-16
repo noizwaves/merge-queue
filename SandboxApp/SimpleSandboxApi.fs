@@ -138,9 +138,9 @@ let start (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | Ok (PerformBatchBuild _) -> "Starting batch build"
-        | Error (StartBatchError AlreadyRunning) -> "A batch is already running"
-        | Error (StartBatchError EmptyQueue) -> "Queue is empty, no batch to start"
+        | Ok(PerformBatchBuild _) -> "Starting batch build"
+        | Error(StartBatchError AlreadyRunning) -> "A batch is already running"
+        | Error(StartBatchError EmptyQueue) -> "Queue is empty, no batch to start"
 
     response
     |> toJson
@@ -156,13 +156,13 @@ let finish (load: Load) (save: Save) _request: WebPart =
     let response =
         match result with
         | Ok IngestBuildSuccess.NoChange -> "NoOp"
-        | Ok (PerformBatchMerge _) ->
+        | Ok(PerformBatchMerge _) ->
             // HACK: do the merge if we should it...
-            ingestMergeUpdate' { message = (MergeMessage.Success) } |> ignore
+            ingestMergeUpdate' { message = (UnvalidatedMergeMessage.Success) } |> ignore
             "Batch finished"
-        | Ok (ReportBuildFailureWithRetry _) -> "Batch failed"
-        | Ok (ReportBuildFailureNoRetry _) -> "Batch failed"
-        | Error (IngestBuild.Error.ValidationError help)  -> sprintf "Validation error: %s" help
+        | Ok(ReportBuildFailureWithRetry _) -> "Batch failed"
+        | Ok(ReportBuildFailureNoRetry _) -> "Batch failed"
+        | Error(IngestBuild.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson

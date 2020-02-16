@@ -443,7 +443,7 @@ let startBatch: StartBatch =
 let ingestBuildUpdate: IngestBuildUpdate =
     fun message model ->
         match model.activeBatch, message with
-        | Running failed, Failure ->
+        | Running failed, BuildMessage.Failure ->
             match bisect failed with
             | None ->
                 let queue, nextActive = failWithoutRetry failed model.queue
@@ -454,7 +454,7 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureNoRetry (newModel, prs)
+                ReportBuildFailureNoRetry(newModel, prs)
 
             | Some(first, second) ->
                 let queue, nextActive = failWithRetry first second model.queue
@@ -465,22 +465,49 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                ReportBuildFailureWithRetry (newModel, prs)
+                ReportBuildFailureWithRetry(newModel, prs)
 
-        | Running succeeded, Success targetHead ->
+        | Running succeeded, BuildMessage.Success targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
             let result = PerformBatchMerge(newModel, pullRequests, targetHead)
 
             result
-        | NoBatch, Failure ->
-            NoChange
-        | Merging _, Failure ->
-            NoChange
-        | NoBatch, Success _ ->
-            NoChange
-        | Merging _, Success _ ->
+        | NoBatch, BuildMessage.Failure ->
+            IngestBuildSuccess.NoChange
+        | Merging _, BuildMessage.Failure ->
+            IngestBuildSuccess.NoChange
+        | NoBatch, BuildMessage.Success _ ->
+            IngestBuildSuccess.NoChange
+        | Merging _, BuildMessage.Success _ ->
+            IngestBuildSuccess.NoChange
+
+let ingestMergeUpdate: IngestMergeUpdate =
+    fun message model ->
+        match model.activeBatch, message with
+        | Merging merged, MergeMessage.Success ->
+            let queue, batch = completeMerge merged model.queue
+
+            let newModel =
+                { model with
+                      queue = queue
+                      activeBatch = batch }
+
+            let pullRequests = merged |> MergeableBatch.toPullRequests
+
+            MergeComplete(newModel, pullRequests)
+        | Merging unmerged, MergeMessage.Failure ->
+            let queue, batch = failMerge unmerged model.queue
+            let pullRequests = unmerged |> MergeableBatch.toPullRequests
+
+            let newModel =
+                { model with
+                      queue = queue
+                      activeBatch = batch }
+
+            ReportMergeFailure(newModel, pullRequests)
+        | _, _ ->
             NoChange
 
 // "Properties"

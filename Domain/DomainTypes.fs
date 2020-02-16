@@ -167,6 +167,17 @@ module DomainTypes =
     // always succeeds... for now
     type IngestBuildUpdate = BuildMessage -> MergeQueue -> IngestBuildSuccess
 
+    type MergeMessage =
+        | Success
+        | Failure
+
+    type IngestMergeSuccess =
+        | NoChange // TODO: This should be an error: no merge in progress
+        | MergeComplete of MergeQueue * List<PullRequest>
+        | ReportMergeFailure of MergeQueue * List<PullRequest>
+
+    type IngestMergeUpdate = MergeMessage -> MergeQueue -> IngestMergeSuccess
+
     type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
 
     type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)

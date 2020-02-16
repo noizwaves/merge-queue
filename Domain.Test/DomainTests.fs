@@ -589,7 +589,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
         runningQueueDepthThree
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = UnvalidatedBuildMessage.Success "12345678" } |> ignore
-            ingestMergeUpdate load save { message = MergeMessage.Success })
+            ingestMergeUpdate load save { message = UnvalidatedMergeMessage.Success })
         |> snd
 
     finishedQueue
@@ -610,9 +610,9 @@ let ``Merge success message when batch is being merged``() =
 
     let result, state =
         mergingQueue
-        |> applyCommands (fun load save -> ingestMergeUpdate load save { message = MergeMessage.Success })
+        |> applyCommands (fun load save -> ingestMergeUpdate load save { message = UnvalidatedMergeMessage.Success })
 
-    let expected: IngestMergeResult = Ok(IngestMergeSuccess.MergeComplete [ one; two ])
+    let expected: IngestMergeResult = IngestMergeSuccess.MergeComplete [ one; two ]
     result |> should equal expected
 
     state |> should equal MergeQueue.empty
@@ -623,13 +623,13 @@ let ``Merge failure message when batch is being merged``() =
 
     let result, state =
         mergingQueue
-        |> applyCommands (fun load save -> ingestMergeUpdate load save { message = MergeMessage.Failure })
+        |> applyCommands (fun load save -> ingestMergeUpdate load save { message = UnvalidatedMergeMessage.Failure })
 
     state
     |> peekCurrentQueue
     |> should equal [ one; two ]
 
-    let expected: IngestMergeResult = Ok(IngestMergeSuccess.ReportMergeFailure [ one; two ])
+    let expected: IngestMergeResult = IngestMergeSuccess.ReportMergeFailure [ one; two ]
     result |> should equal expected
 
 // PRs are updated

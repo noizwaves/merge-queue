@@ -249,7 +249,7 @@ let ``Realistic workflow``() =
     dequeue' { number = 5555 } |> ignore
     dequeue' { number = 3333 } |> ignore
     ingestBuildUpdate' { message = (UnvalidatedBuildMessage.Success "12000000") } |> ignore
-    ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
+    ingestMergeUpdate' { message = UnvalidatedMergeMessage.Success } |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
 
     ``Five is dequeued, Three is dequeued, The batch builds and merges successfully``
@@ -351,7 +351,7 @@ let ``Realistic workflow``() =
 
     // 10. Batch builds and merges successfully
     ingestBuildUpdate' { message = UnvalidatedBuildMessage.Success "76800000" } |> ignore
-    ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
+    ingestMergeUpdate' { message = UnvalidatedMergeMessage.Success } |> ignore
     let ``Batch builds and merges successfully`` = fetch()
 
     ``Batch builds and merges successfully`` |> should equal MergeQueue.empty
