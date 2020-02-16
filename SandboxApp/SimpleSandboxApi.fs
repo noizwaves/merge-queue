@@ -151,7 +151,7 @@ let finish (load: Load) (save: Save) _request: WebPart =
     let ingestBuildUpdate' = ingestBuildUpdate load save
     let ingestMergeUpdate' = ingestMergeUpdate load save
 
-    let result = ingestBuildUpdate' { message = BuildMessage.Success "12345678" }
+    let result = ingestBuildUpdate' { message = UnvalidatedBuildMessage.Success "12345678" }
 
     let response =
         match result with

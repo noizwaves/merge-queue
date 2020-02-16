@@ -11,9 +11,9 @@ module PullRequest =
 module CommitStatusState =
     let create (value: string): Result<CommitStatusState, string> =
         match value with
-        | "Pending" -> Ok Pending
-        | "Success" -> Ok Success
-        | "Failure" -> Ok Failure
+        | "Pending" -> Ok CommitStatusState.Pending
+        | "Success" -> Ok CommitStatusState.Success
+        | "Failure" -> Ok CommitStatusState.Failure
         | _ -> Error "value must be either 'Pending', 'Success', or 'Failure'"
 
 module CommitStatus =
@@ -439,6 +439,49 @@ let startBatch: StartBatch =
                 // SMELL: impossible code path, all non-empty queues have a next batch...
                 // SMELL: how could execution get here and result is empty?
                 Error EmptyQueue
+
+let ingestBuildUpdate: IngestBuildUpdate =
+    fun message model ->
+        match model.activeBatch, message with
+        | Running failed, Failure ->
+            match bisect failed with
+            | None ->
+                let queue, nextActive = failWithoutRetry failed model.queue
+
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = nextActive }
+
+                let prs = failed |> RunnableBatch.toPullRequests
+                ReportBuildFailureNoRetry (newModel, prs)
+
+            | Some(first, second) ->
+                let queue, nextActive = failWithRetry first second model.queue
+
+                let newModel =
+                    { model with
+                          queue = queue
+                          activeBatch = nextActive }
+
+                let prs = failed |> RunnableBatch.toPullRequests
+                ReportBuildFailureWithRetry (newModel, prs)
+
+        | Running succeeded, Success targetHead ->
+            let nextActive = completeBuild succeeded
+            let newModel = { model with activeBatch = nextActive }
+            let pullRequests = succeeded |> RunnableBatch.toPullRequests
+            let result = PerformBatchMerge(newModel, pullRequests, targetHead)
+
+            result
+        | NoBatch, Failure ->
+            NoChange
+        | Merging _, Failure ->
+            NoChange
+        | NoBatch, Success _ ->
+            NoChange
+        | Merging _, Success _ ->
+            NoChange
 
 // "Properties"
 

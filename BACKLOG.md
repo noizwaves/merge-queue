@@ -28,6 +28,7 @@ Done
 
 Backlog
 1.  codify the pattern of domain services returning a new Merge Queue, seems like a Command success type thing
+    -  commands don't need to return the merge queue
 1.  solidify ubiquitous language around running (building || merging) batches
 1.  view where my PR is
 1.  add assertions on the thrown away results

@@ -152,6 +152,21 @@ module DomainTypes =
 
     type StartBatch = MergeQueue -> Result<StartBatchSuccess, StartBatchError>
 
+    // TODO: make names less general, more specific to build operation
+    // it's actually an update, not a message
+    type BuildMessage =
+        | Success of SHA
+        | Failure
+
+    type IngestBuildSuccess =
+        | NoChange
+        | PerformBatchMerge of MergeQueue * List<PullRequest> * SHA
+        | ReportBuildFailureWithRetry of MergeQueue * List<PullRequest>
+        | ReportBuildFailureNoRetry of MergeQueue * List<PullRequest>
+
+    // always succeeds... for now
+    type IngestBuildUpdate = BuildMessage -> MergeQueue -> IngestBuildSuccess
+
     type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
 
     type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)

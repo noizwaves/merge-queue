@@ -184,7 +184,7 @@ let ``Realistic workflow``() =
         { number = 5555
           sha = "50505050" }
     |> ignore
-    ingestBuildUpdate' { message = BuildMessage.Failure } |> ignore
+    ingestBuildUpdate' { message = UnvalidatedBuildMessage.Failure } |> ignore
     updateStatuses'
         { number = 6666
           sha = "60606060"
@@ -248,7 +248,7 @@ let ``Realistic workflow``() =
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
     dequeue' { number = 5555 } |> ignore
     dequeue' { number = 3333 } |> ignore
-    ingestBuildUpdate' { message = (BuildMessage.Success "12000000") } |> ignore
+    ingestBuildUpdate' { message = (UnvalidatedBuildMessage.Success "12000000") } |> ignore
     ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
 
@@ -272,7 +272,7 @@ let ``Realistic workflow``() =
 
     // 7. Start a batch and it fails
     startBatch'() |> ignore
-    ingestBuildUpdate' { message = BuildMessage.Failure } |> ignore
+    ingestBuildUpdate' { message = UnvalidatedBuildMessage.Failure } |> ignore
     let ``Start a batch and it fails`` = fetch()
 
     ``Start a batch and it fails``
@@ -350,7 +350,7 @@ let ``Realistic workflow``() =
     |> should equal [ PlannedBatch [ seven.number; eight.number; six.number ] ]
 
     // 10. Batch builds and merges successfully
-    ingestBuildUpdate' { message = BuildMessage.Success "76800000" } |> ignore
+    ingestBuildUpdate' { message = UnvalidatedBuildMessage.Success "76800000" } |> ignore
     ingestMergeUpdate' { message = MergeMessage.Success } |> ignore
     let ``Batch builds and merges successfully`` = fetch()
 

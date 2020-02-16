@@ -292,12 +292,12 @@ module StartBatch =
 module IngestBuild =
     // Types
     // TODO: Make this more like a DTO (i.e. not a DU?)
-    type BuildMessage =
+    type UnvalidatedBuildMessage =
         | Success of string // the SHA of the failed builds commit
         | Failure // TODO: how do we know which SHA failed? do we care?
 
     type Command =
-        { message: BuildMessage }
+        { message: UnvalidatedBuildMessage }
 
     // SMELL: Success type name clashes with Success constructor for BuildMessage
     type IngestBuildSuccess =
@@ -316,13 +316,8 @@ module IngestBuild =
     // Implementation
 
     /// Validation
-    // TODO: Move this into the domain
-    type private ValidatedMessage =
-        | Success of SHA
-        | Failure
-
     type private ValidatedCommand =
-        { message: ValidatedMessage }
+        { message: BuildMessage }
 
     type private ValidateCommand = Command -> Result<ValidatedCommand, string>
 
@@ -330,16 +325,16 @@ module IngestBuild =
         fun command ->
             // TODO: make this impl less gross
             match command.message with
-            | BuildMessage.Success(shaValue) ->
+            | UnvalidatedBuildMessage.Success(shaValue) ->
                 shaValue
                 |> SHA.create
-                |> Result.map (fun sha -> { message = ValidatedMessage.Success sha })
-            | BuildMessage.Failure ->
-                Ok { message = ValidatedMessage.Failure }
+                |> Result.map (fun sha -> { message = BuildMessage.Success sha })
+            | UnvalidatedBuildMessage.Failure ->
+                Ok { message = BuildMessage.Failure }
 
     /// Loading
     type private StepInput =
-        { message: ValidatedMessage
+        { message: BuildMessage
           mergeQueue: MergeQueue }
 
     type private LoadMergeQueue = ValidatedCommand -> StepInput
@@ -351,60 +346,41 @@ module IngestBuild =
               mergeQueue = model }
 
     /// Ingest
-    type private IngestBuildStep = StepInput -> Result<IngestBuildSuccess * MergeQueue, Error>
+    type private IngestBuildStep = StepInput -> DomainTypes.IngestBuildSuccess
 
     let private ingestBuildStep: IngestBuildStep =
         fun input ->
             let message = input.message
             let model = input.mergeQueue
 
-            match model.activeBatch, message with
-            | Running failed, Failure ->
-                match bisect failed with
-                | None ->
-                    let queue, nextActive = failWithoutRetry failed model.queue
-
-                    let newModel =
-                        { model with
-                              queue = queue
-                              activeBatch = nextActive }
-
-                    let prs = failed |> RunnableBatch.toPullRequests
-                    Ok(ReportBuildFailureNoRetry prs, newModel)
-
-                | Some(first, second) ->
-                    let queue, nextActive = failWithRetry first second model.queue
-
-                    let newModel =
-                        { model with
-                              queue = queue
-                              activeBatch = nextActive }
-
-                    let prs = failed |> RunnableBatch.toPullRequests
-                    Ok(ReportBuildFailureWithRetry prs, newModel)
-
-            | Running succeeded, Success targetHead ->
-                let nextActive = completeBuild succeeded
-                let newModel = { model with activeBatch = nextActive }
-                let pullRequests = succeeded |> RunnableBatch.toPullRequests
-                let result = PerformBatchMerge(pullRequests, targetHead)
-
-                Ok(result, newModel)
-
-            | NoBatch, Failure ->
-                Ok(NoChange, model) // TODO: no change in model, don't need to save here...
-            | Merging _, Failure ->
-                Ok(NoChange, model) // TODO: no change in model, don't need to save here...
-            | NoBatch, Success _ ->
-                Ok(NoChange, model) // TODO: no change in model, don't need to save here...
-            | Merging _, Success _ ->
-                Ok(NoChange, model) // TODO: no change in model, don't need to save here...
+            ingestBuildUpdate message model
 
     /// Save
-    type private SaveMergeQueue = IngestBuildSuccess * MergeQueue -> unit
+    type private SaveMergeQueue = DomainTypes.IngestBuildSuccess -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun (_, model) -> save model
+        fun success ->
+            match success with
+            | DomainTypes.IngestBuildSuccess.NoChange ->
+                success |> ignore
+            | DomainTypes.IngestBuildSuccess.PerformBatchMerge(mergeQueue, _, _) ->
+                save mergeQueue
+            | DomainTypes.IngestBuildSuccess.ReportBuildFailureWithRetry(mergeQueue, _) ->
+                save mergeQueue
+            | DomainTypes.IngestBuildSuccess.ReportBuildFailureNoRetry(mergeQueue, _) ->
+                save mergeQueue
+
+    /// To command result type
+    let private toSuccess (success: DomainTypes.IngestBuildSuccess): IngestBuildSuccess =
+        match success with
+        | DomainTypes.IngestBuildSuccess.NoChange ->
+            IngestBuildSuccess.NoChange
+        | DomainTypes.IngestBuildSuccess.PerformBatchMerge(_, prs, sha) ->
+            IngestBuildSuccess.PerformBatchMerge(prs, sha)
+        | DomainTypes.IngestBuildSuccess.ReportBuildFailureWithRetry(_, prs) ->
+            IngestBuildSuccess.ReportBuildFailureWithRetry(prs)
+        | DomainTypes.IngestBuildSuccess.ReportBuildFailureNoRetry(_, prs) ->
+            IngestBuildSuccess.ReportBuildFailureNoRetry(prs)
 
     /// The final workflow
     let ingestBuildUpdate (load: Load) (save: Save): IngestBuildWorkflow =
@@ -416,9 +392,9 @@ module IngestBuild =
             command
             |> validateCommand
             |> Result.map loadMergeQueue
-            |> Result.bind ingestBuildStep
+            |> Result.map ingestBuildStep
             |> Common.tee (Result.map saveMergeQueue)
-            |> Result.map fst
+            |> Result.map toSuccess
 
 module IngestMerge =
     // Types
