@@ -218,9 +218,7 @@ module StartBatch =
 
     type Success = PerformBatchBuild of List<PullRequest>
 
-    type Error =
-        | AlreadyRunning
-        | EmptyQueue
+    type Error = StartBatchError of StartBatchError
 
     type StartBatchResult = Result<Success, Error>
 
@@ -228,30 +226,51 @@ module StartBatch =
 
     // Implementation
 
+    /// Load
+    type private LoadMergeQueue = unit -> MergeQueue
+
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        load
+
+    /// Start the batch
+    type private StepInput =
+        { mergeQueue: MergeQueue }
+
+    type private StartBatchStep = StepInput -> Result<StartBatchSuccess, StartBatchError>
+
+    let private toInput (mergeQueue: MergeQueue): StepInput =
+        { mergeQueue = mergeQueue }
+
+    let private startBatchStep: StartBatchStep =
+        fun input -> input.mergeQueue |> startBatch
+
+    /// Save
+    type private SaveMergeQueue = StartBatchSuccess -> unit
+
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun value ->
+            match value with
+            | StartBatchSuccess.PerformBatchBuild(mergeQueue, _) ->
+                save mergeQueue
+
+    /// and make the final success
+    let private toSuccess (value: StartBatchSuccess): Success =
+        match value with
+        | StartBatchSuccess.PerformBatchBuild(_, prs) -> PerformBatchBuild prs
+
     // SMELL: what calls this? synchronous after some other call?
     // maybe make start batch private, and call it inside enqueue && updateStatus?
     let startBatch (load: Load) (save: Save): StartBatchWorkflow =
-        fun command ->
-            let model = load()
-            match model.activeBatch, model.queue with
-            | Running _, _ -> Error AlreadyRunning
-            | Merging _, _ -> Error AlreadyRunning
-            | NoBatch, AttemptQueue [] -> Error EmptyQueue
-            | NoBatch, queue ->
-                match pickNextBatch queue with
-                | Some(batch, remaining) ->
-                    let newModel =
-                        { model with
-                              activeBatch = Running batch
-                              queue = remaining }
-                    save newModel
+        let loadMergeQueue = loadMergeQueue load
+        let startBatchStep = startBatchStep >> Result.mapError StartBatchError
+        let saveMergeQueue = saveMergeQueue save
 
-                    let pullRequests = batch |> RunnableBatch.toPullRequests
-                    Ok(PerformBatchBuild pullRequests)
-                | None ->
-                    // SMELL: impossible code path, all non-empty queues have a next batch...
-                    // SMELL: how could execution get here and result is empty?
-                    Error EmptyQueue
+        fun command ->
+            command
+            |> Common.switch (loadMergeQueue >> toInput)
+            |> Common.bind startBatchStep
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map toSuccess
 
 module IngestBuild =
     // Types

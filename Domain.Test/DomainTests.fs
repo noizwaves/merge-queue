@@ -410,7 +410,7 @@ let ``Attempt to start a second concurrent batch``() =
     let (result, state) =
         runningBatch |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Error AlreadyRunning
+    let expected: StartBatchResult = Error (StartBatchError AlreadyRunning)
     result |> should equal expected
 
     state
@@ -428,7 +428,7 @@ let ``Attempt to start a second concurrent batch during merging``() =
     let result, state =
         mergingQueue |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Error AlreadyRunning
+    let expected: StartBatchResult = Error (StartBatchError AlreadyRunning)
     result |> should equal expected
 
     state |> should equal mergingQueue
@@ -441,7 +441,7 @@ let ``Attempt to start a batch on an empty queue``() =
     let (result, state) =
         queue |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Error EmptyQueue
+    let expected: StartBatchResult = Error (StartBatchError EmptyQueue)
     result |> should equal expected
 
     state |> should equal queue

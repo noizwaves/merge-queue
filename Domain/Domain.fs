@@ -346,6 +346,9 @@ let previewExecutionPlan: PreviewExecutionPlan =
         | None -> fromQueue
 
 // "Domain services"
+
+// PATTERN: Maybe a pattern of MergeQueue -> (Something) -> Result<Success * MergeQueue, Error>
+
 let enqueue: Enqueue =
     fun (pullRequest: PullRequest) (model: MergeQueue) ->
         let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
@@ -415,6 +418,27 @@ let dequeue: Dequeue =
 
         | false, false, false ->
             Error(NotFound)
+
+let startBatch: StartBatch =
+    fun model ->
+        match model.activeBatch, model.queue with
+        | Running _, _ -> Error AlreadyRunning
+        | Merging _, _ -> Error AlreadyRunning
+        | NoBatch, AttemptQueue [] -> Error EmptyQueue // TODO: Delete this case
+        | NoBatch, queue ->
+            match pickNextBatch queue with
+            | Some(batch, remaining) ->
+                let newModel =
+                    { model with
+                          activeBatch = Running batch
+                          queue = remaining }
+
+                let pullRequests = batch |> RunnableBatch.toPullRequests
+                Ok(PerformBatchBuild(newModel, pullRequests))
+            | None ->
+                // SMELL: impossible code path, all non-empty queues have a next batch...
+                // SMELL: how could execution get here and result is empty?
+                Error EmptyQueue
 
 // "Properties"
 

@@ -127,7 +127,7 @@ module DomainTypes =
     type EnqueueError =
         | RejectedFailingBuildStatus
         | AlreadyEnqueued
-        
+
     type Enqueue = PullRequest -> MergeQueue -> Result<EnqueueSuccess, EnqueueError>
 
     // TODO: make a type for AbortedBatch
@@ -135,16 +135,22 @@ module DomainTypes =
     type DequeueSuccess =
         | Dequeued of MergeQueue
         | DequeuedAndAbortRunningBatch of MergeQueue * List<PullRequest> * PullRequestNumber
-        
+
     type DequeueError =
         | RejectedInMergingBatch
         | NotFound
-    
+
     type Dequeue = PullRequestNumber -> MergeQueue -> Result<DequeueSuccess, DequeueError>
 
     // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
     // Maybe it shouldn't be a command
-    type StartBatch = MergeQueue -> MergeQueue
+    type StartBatchSuccess = PerformBatchBuild of MergeQueue * List<PullRequest>
+
+    type StartBatchError =
+        | AlreadyRunning
+        | EmptyQueue
+
+    type StartBatch = MergeQueue -> Result<StartBatchSuccess, StartBatchError>
 
     type UpdateSha = PullRequestNumber * SHA -> (MergeQueue -> MergeQueue)
 

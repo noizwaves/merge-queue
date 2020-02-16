@@ -139,8 +139,8 @@ let start (load: Load) (save: Save) _request: WebPart =
     let response =
         match result with
         | Ok (PerformBatchBuild _) -> "Starting batch build"
-        | Error AlreadyRunning -> "A batch is already running"
-        | Error EmptyQueue -> "Queue is empty, no batch to start"
+        | Error (StartBatchError AlreadyRunning) -> "A batch is already running"
+        | Error (StartBatchError EmptyQueue) -> "Queue is empty, no batch to start"
 
     response
     |> toJson
