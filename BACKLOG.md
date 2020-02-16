@@ -18,7 +18,7 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
-    1.  move some dequeue stuff into domain
+    1.  move command stuff into domain
     1.  change command workflow to be railway
     1.  replace failwithf calls with ValidationFailed results
     1.  use a result computation expression to simplify validation

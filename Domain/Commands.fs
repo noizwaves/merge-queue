@@ -95,18 +95,23 @@ module Enqueue =
         fun command -> toPullRequestDomain command.number command.sha command.statuses
 
     /// Loading the MergeQueue
-    type private LoadMergeQueue = PullRequest -> (PullRequest * MergeQueue)
+    type private StepInput =
+        { pullRequest: PullRequest
+          mergeQueue: MergeQueue }
+
+    type private LoadMergeQueue = PullRequest -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun pr ->
             let model = load()
-            (pr, model)
+            { pullRequest = pr
+              mergeQueue = model }
 
     /// Enqueue step
-    type private EnqueueStep = PullRequest * MergeQueue -> Result<EnqueueSuccess, EnqueueError>
+    type private EnqueueStep = StepInput -> Result<EnqueueSuccess, EnqueueError>
 
     let private enqueueStep: EnqueueStep =
-        fun (pullRequest, model) -> Domain.enqueue pullRequest model
+        fun input -> Domain.enqueue input.pullRequest input.mergeQueue
 
     /// Save changes to the MergeQueue
     type private SaveMergeQueue = EnqueueSuccess -> unit
@@ -150,7 +155,7 @@ module Dequeue =
 
     type Success =
         | Dequeued
-        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
+        | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber // TODO: make these DTOs?
 
     type Error =
         | ValidationError of string
@@ -175,22 +180,34 @@ module Dequeue =
             |> Result.map (fun number -> { number = number })
 
     /// Loading
-    type private LoadMergeQueue = unit -> MergeQueue
+    type private StepInput =
+        { number: PullRequestNumber
+          mergeQueue: MergeQueue }
+
+    type private LoadMergeQueue = ValidatedDequeue -> StepInput
+
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        fun value ->
+            let mergeQueue = load()
+            { number = value.number
+              mergeQueue = mergeQueue }
 
     /// Dequeue step
-    /// TODO: Make `MergeQueue * PullRequestNumber` a named record type
-    type private DequeueStep = MergeQueue * ValidatedDequeue -> Result<DequeueSuccess, DequeueError>
+    type private DequeueStep = StepInput -> Result<DequeueSuccess, DequeueError>
 
     let private dequeueStep: DequeueStep =
-        fun (model, validated) -> Domain.dequeue validated.number model
+        fun input -> Domain.dequeue input.number input.mergeQueue
 
     /// Save
-    type private SaveMergeQueue = MergeQueue -> unit
+    type private SaveMergeQueue = DequeueSuccess -> unit
 
-    let private extractMergeQueue (success: DequeueSuccess): MergeQueue =
-        match success with
-        | DequeueSuccess.Dequeued(mergeQueue) -> mergeQueue
-        | DequeueSuccess.DequeuedAndAbortRunningBatch(mergeQueue, _, _) -> mergeQueue
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun success ->
+            match success with
+            | DequeueSuccess.Dequeued(mergeQueue) ->
+                save mergeQueue
+            | DequeueSuccess.DequeuedAndAbortRunningBatch(mergeQueue, _, _) ->
+                save mergeQueue
 
     let private toSuccess (success: DequeueSuccess): Success =
         match success with
@@ -200,16 +217,16 @@ module Dequeue =
     // the final workflow
     let dequeue (load: Load) (save: Save): DequeueWorkflow =
         let validateDequeue = validateDequeue >> Result.mapError ValidationError
-        let loadMergeQueue = load
+        let loadMergeQueue = loadMergeQueue load
         let dequeueStep = dequeueStep >> Result.mapError DequeueError
-        let saveMergeQueue = save
+        let saveMergeQueue = saveMergeQueue save
 
         fun command ->
             command
             |> validateDequeue
-            |> Common.carrySecond loadMergeQueue
+            |> Result.map loadMergeQueue
             |> Common.bind dequeueStep
-            |> Common.tee (Result.map (extractMergeQueue >> saveMergeQueue))
+            |> Common.tee (Result.map saveMergeQueue)
             |> Result.map toSuccess
 
 module StartBatch =
