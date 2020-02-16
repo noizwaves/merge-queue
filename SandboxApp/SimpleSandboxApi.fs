@@ -80,7 +80,7 @@ let enqueue (load: Load) (save: Save) id: WebPart =
         | Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
         | Error(Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -101,10 +101,10 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Enqueued) -> "Enqueued"
         | Ok(Success.SinBinned) -> "Sin binned"
-        | Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
+        | Error(Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
-        | Error(Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -121,8 +121,9 @@ let dequeue (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Dequeued) -> "Dequeued"
         | Ok(Success.DequeuedAndAbortRunningBatch _) -> "Dequeued (a running batch was cancelled)"
-        | Error(RejectedInMergingBatch) -> "Rejected (in a merging batch)"
-        | Error(NotFound) -> "Not found"
+        | Error(Dequeue.Error.RejectedInMergingBatch) -> "Rejected (in a merging batch)"
+        | Error(Dequeue.Error.NotFound) -> "Not found"
+        | Error(Dequeue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson

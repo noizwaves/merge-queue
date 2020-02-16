@@ -33,7 +33,9 @@ let private toPullRequestDomain (number: int) (sha: string) (statuses: List<stri
     | Ok number, Ok sha, Ok statuses -> Ok(PullRequest.create number sha statuses)
 
 module Common =
-    let apply func =
+    // Input is a func: a' -> Result<b', e'>
+    // Produces a func: Result<a', e'> -> Result<b', e'>
+    let bind func =
         fun result ->
             match result with
             | Ok value -> func value
@@ -46,6 +48,24 @@ module Common =
 
     let switch func =
         fun value -> func value |> Ok
+
+    // Input is a func: unit -> a'
+    // Produces a func: Result<b', e'> -> Result<a' * b', e'>
+    let carrySecond func =
+        fun result ->
+            match result with
+            | Ok value -> Ok(func(), value)
+            | Error error -> Error error
+
+    // Input is a func: a' -> b'
+    // Produces: Result<c' * a', e'> -> Result<b', e'>
+    let mapSecond func =
+        Result.map (snd >> func)
+
+    // Input is a func: a' -> b'
+    // Produces: Result<a' * c', e'> -> Result<b', e'>
+    let mapFirst func =
+        Result.map (fst >> func)
 
 module Enqueue =
     // Types
@@ -119,7 +139,7 @@ module Enqueue =
             command
             |> validatePullRequest
             |> Result.map loadMergeQueue
-            |> Common.apply enqueueStep
+            |> Common.bind enqueueStep
             |> Result.map (Common.tee saveMergeQueue)
             |> Result.map toSuccess
 
@@ -133,7 +153,9 @@ module Dequeue =
         | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
 
     // TODO: Validation error
+    // TODO: Move Rejected... & NotFound into domain and lift to DequeueError
     type Error =
+        | ValidationError of string
         | RejectedInMergingBatch
         | NotFound
 
@@ -143,62 +165,88 @@ module Dequeue =
 
     // Implementation
 
-    // the final workflow
-    let dequeue (load: Load) (save: Save): DequeueWorkflow =
-        fun command ->
-            // TODO: chain validation with further processing and return errors
-            let number =
-                match PullRequestNumber.create command.number with
-                | Ok number -> number
-                | Error error -> failwithf "Validation failed: %s" error
+    /// Validation
+    type private ValidatedDequeue =
+        { number: PullRequestNumber }
 
-            let model = load()
-            // TODO: Concept here, "locate pull request", multiple occurrences
+    type private ValidateDequeue = Command -> Result<ValidatedDequeue, string>
+
+    let private validateDequeue: ValidateDequeue =
+        fun command ->
+            command.number
+            |> PullRequestNumber.create
+            |> Result.map (fun number -> { number = number })
+
+    /// Loading
+    type private LoadMergeQueue = unit -> MergeQueue
+
+    /// Dequeue step
+    /// TODO: Make `MergeQueue * PullRequestNumber` a named record type
+    type private DequeueStep = MergeQueue * ValidatedDequeue -> Result<Success * MergeQueue, Error>
+
+    let private dequeueStep: DequeueStep =
+        fun (model, validated) ->
+            let number = validated.number
+
             let isCurrent = model.activeBatch |> ActiveBatch.contains number
             let isEnqueued = model.queue |> AttemptQueue.contains number
             let isSinBinned = model.sinBin |> SinBin.contains number
 
-            let result, newModel =
-                match isCurrent, isEnqueued, isSinBinned with
-                | true, _, _ ->
-                    match model.activeBatch with
-                    | Running(RunnableBatch batch) ->
-                        let newQueue =
-                            model.queue
-                            |> AttemptQueue.prepend batch
-                            |> AttemptQueue.removeByNumber number
+            match isCurrent, isEnqueued, isSinBinned with
+            | true, _, _ ->
+                match model.activeBatch with
+                | Running(RunnableBatch batch) ->
+                    let newQueue =
+                        model.queue
+                        |> AttemptQueue.prepend batch
+                        |> AttemptQueue.removeByNumber number
 
-                        let newBatch = NoBatch
+                    let newBatch = NoBatch
 
-                        let pullRequests = batch |> Batch.toPullRequests
-                        let result = Ok(DequeuedAndAbortRunningBatch(pullRequests, number))
+                    let pullRequests = batch |> Batch.toPullRequests
+                    let result = DequeuedAndAbortRunningBatch(pullRequests, number)
 
-                        let newModel =
-                            { model with
-                                  queue = newQueue
-                                  activeBatch = newBatch }
-                        result, newModel
+                    let newModel =
+                        { model with
+                              queue = newQueue
+                              activeBatch = newBatch }
+                    Ok(result, newModel)
 
-                    | Merging _ ->
-                        Error(RejectedInMergingBatch), model
+                | Merging _ ->
+                    Error RejectedInMergingBatch
 
-                    | NoBatch ->
-                        // SMELL: this is an impossible branch to get into...
-                        failwith "PullRequest cannot be in an empty batch"
+                | NoBatch ->
+                    // SMELL: this is an impossible branch to get into...
+                    failwith "PullRequest cannot be in an empty batch"
 
-                | _, true, _ ->
-                    let newQueue = model.queue |> AttemptQueue.removeByNumber number
-                    Ok(Dequeued), { model with queue = newQueue }
+            | _, true, _ ->
+                let newQueue = model.queue |> AttemptQueue.removeByNumber number
+                Ok(Dequeued, { model with queue = newQueue })
 
-                | _, _, true ->
-                    let newSinBin = model.sinBin |> SinBin.removeByNumber number
-                    Ok(Dequeued), { model with sinBin = newSinBin }
+            | _, _, true ->
+                let newSinBin = model.sinBin |> SinBin.removeByNumber number
+                Ok(Dequeued, { model with sinBin = newSinBin })
 
-                | false, false, false ->
-                    Error(NotFound), model
+            | false, false, false ->
+                Error(NotFound)
 
-            save newModel |> ignore // TODO: sometimes we don't update the model... so why save it?
-            result
+    /// Save
+    type private SaveMergeQueue = MergeQueue -> unit
+
+    // the final workflow
+    let dequeue (load: Load) (save: Save): DequeueWorkflow =
+        let validateDequeue = validateDequeue >> Result.mapError ValidationError
+        let loadMergeQueue = load
+        let dequeueStep: DequeueStep = dequeueStep
+        let saveMergeQueue: SaveMergeQueue = save
+
+        fun command ->
+            command
+            |> validateDequeue
+            |> Common.carrySecond loadMergeQueue
+            |> Common.bind dequeueStep
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id
 
 module StartBatch =
     // Types
