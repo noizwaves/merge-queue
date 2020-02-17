@@ -189,6 +189,8 @@ module DomainTypes =
 
     type UpdatePullRequest = PullRequestNumber * SHA -> (MergeQueue -> UpdatePullRequestSuccess * MergeQueue)
 
-    type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> MergeQueue)
+    type UpdateStatusesSuccess = NoChange
+
+    type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> UpdateStatusesSuccess * MergeQueue)
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan

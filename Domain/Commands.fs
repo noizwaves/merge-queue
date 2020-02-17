@@ -467,7 +467,7 @@ module UpdatePullRequest =
     type private UpdateStep = StepInput -> (UpdatePullRequestSuccess * MergeQueue)
 
     let private updateStep: UpdateStep =
-        fun input -> input.mergeQueue |> updateSha (input.update.number, input.update.sha)
+        fun input -> input.mergeQueue |> updatePullRequest (input.update.number, input.update.sha)
 
     // Save merge queue
     type private SaveMergeQueue = MergeQueue -> unit
@@ -496,18 +496,25 @@ module UpdateStatuses =
           sha: string
           statuses: List<string * string> }
 
-    type Success = NoChange
+    type Success = UpdateStatusesSuccess
 
-    type Error = unit
+    type Error = ValidationError of string
 
     type UpdateStatusResult = Result<Success, Error>
 
     type UpdateStatusWorkflow = Command -> UpdateStatusResult
 
-    // Implementation
-    let updateStatuses (load: Load) (save: Save): UpdateStatusWorkflow =
+    // Validation
+    type private ValidatedCommand =
+        { number: PullRequestNumber
+          sha: SHA
+          statuses: CommitStatuses }
+
+    type private ValidateCommand = Command -> Result<ValidatedCommand, string>
+
+    let private validateCommand: ValidateCommand =
+        // TODO: chain validation with further processing and return errors
         fun command ->
-            // TODO: chain validation with further processing and return errors
             let number' = PullRequestNumber.create command.number
             let buildSha' = SHA.create command.sha
 
@@ -516,23 +523,56 @@ module UpdateStatuses =
                 |> List.map CommitStatus.create
                 |> consolidateResultList
 
-            let number, buildSha, statuses =
-                match number', buildSha', statuses' with
-                | Ok number, Ok buildSha, Ok statuses -> number, buildSha, statuses
-                | Error error, _, _ -> failwithf "Validation failed: %s" error
-                | _, Error error, _ -> failwithf "Validation failed: %s" error
-                | _, _, Error error -> failwithf "Validation failed: %s" error
+            match number', buildSha', statuses' with
+            | Ok number, Ok buildSha, Ok statuses ->
+                Ok
+                    { number = number
+                      sha = buildSha
+                      statuses = statuses }
+            | Error error, _, _ ->
+                Error error
+            | _, Error error, _ ->
+                Error error
+            | _, _, Error error ->
+                Error error
 
-            let model = load()
+    // Load merge queue
+    type private StepInput =
+        { command: ValidatedCommand
+          mergeQueue: MergeQueue }
 
-            // check to see if we should pull the matching commit out of the "sin bin"
-            let newQueue, newSinBin =
-                updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
+    type private LoadMergeQueue = ValidatedCommand -> StepInput
 
-            let newModel =
-                { model with
-                      queue = newQueue
-                      sinBin = newSinBin }
-            save newModel
+    let private loadMergeQueue (load: Load): LoadMergeQueue =
+        fun command ->
+            let mergeQueue = load()
+            { command = command
+              mergeQueue = mergeQueue }
 
-            Ok NoChange
+    // Update the statuses
+    type private UpdateStep = StepInput -> (UpdateStatusesSuccess * MergeQueue)
+
+    let private updateStep: UpdateStep =
+        fun input ->
+            let command = input.command
+            input.mergeQueue |> updateStatuses (command.number, command.sha, command.statuses)
+
+    // Save
+    type private SaveMergeQueue = MergeQueue -> unit
+
+    let private saveMergeQueue (save: Save): SaveMergeQueue =
+        fun mergeQueue -> save mergeQueue
+
+    // Implementation
+    let updateStatuses (load: Load) (save: Save): UpdateStatusWorkflow =
+        let validateCommand = validateCommand >> Result.mapError ValidationError
+        let loadMergeQueue = loadMergeQueue load
+        let saveMergeQueue = saveMergeQueue save
+
+        fun command ->
+            command
+            |> validateCommand
+            |> Result.map loadMergeQueue
+            |> Result.map updateStep
+            |> Common.tee (Common.mapSecond saveMergeQueue)
+            |> Common.mapFirst id

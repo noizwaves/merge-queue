@@ -510,7 +510,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
         | _, _ ->
             Error NotCurrentlyMerging
 
-let updateSha: UpdatePullRequest =
+let updatePullRequest: UpdatePullRequest =
     fun (number, newSha) model ->
         let newSinBin = model.sinBin |> updateShaInSinBin number newSha
         let modelWithNewSinBin = { model with sinBin = newSinBin }
@@ -535,7 +535,7 @@ let updateSha: UpdatePullRequest =
                     { modelWithNewSinBin with
                           queue = newQueue
                           sinBin = newSinBin }
-                NoChange, newModel
+                UpdatePullRequestSuccess.NoChange, newModel
         | NoBatch ->
             let newQueue, newSinBin =
                 updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -544,7 +544,7 @@ let updateSha: UpdatePullRequest =
                 { modelWithNewSinBin with
                       queue = newQueue
                       sinBin = newSinBin }
-            NoChange, newModel
+            UpdatePullRequestSuccess.NoChange, newModel
 
         | Merging batch ->
             let inMergingBatch = batch |> MergeableBatch.contains number
@@ -564,7 +564,20 @@ let updateSha: UpdatePullRequest =
                           queue = newQueue
                           sinBin = newSinBin }
 
-                NoChange, newModel
+                UpdatePullRequestSuccess.NoChange, newModel
+
+let updateStatuses: UpdateStatuses =
+    fun (number, buildSha, statuses) model ->
+        // check to see if we should pull the matching commit out of the "sin bin"
+        let newQueue, newSinBin =
+            updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
+
+        let newModel =
+            { model with
+                  queue = newQueue
+                  sinBin = newSinBin }
+
+        UpdateStatusesSuccess.NoChange, newModel
 
 // "Properties"
 
