@@ -9,7 +9,6 @@
     <Compile Include="DomainServiceTypes.fs" />
     <Compile Include="Domain.fs" />
     <Compile Include="DbTypes.fs" />
-    <Compile Include="WorkflowTypes.fs" />
     <Compile Include="Workflows.fs" />
     <Compile Include="InMemoryRepository.fs" />
   </ItemGroup>
