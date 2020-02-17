@@ -348,10 +348,28 @@ let previewExecutionPlan: PreviewExecutionPlan =
 
 // "Domain services"
 
-// PATTERN: Maybe a pattern of MergeQueue -> (Something) -> Result<Success * MergeQueue, Error>
+module Command =
+    let create (command: 'a) model: Command<'a> =
+        { command = command
+          aggregate = model }
+
+module AggregateSuccess =
+    let create (result: 'b) model: AggregateSuccess<'b> =
+        { success = result
+          aggregate = model }
+
+    let success (value: AggregateSuccess<'b>): 'b =
+        value.success
+
+    let aggregate (value: AggregateSuccess<'b>): MergeQueue =
+        value.aggregate
+
 
 let enqueue: Enqueue =
-    fun (pullRequest: PullRequest) (model: MergeQueue) ->
+    fun command ->
+        let pullRequest = command.command
+        let model = command.aggregate
+
         let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
         // TODO: Concept here, "locate pull request", multiple occurrences
         // TODO: Currently not checking to see if the pull request is currently running!
@@ -368,13 +386,16 @@ let enqueue: Enqueue =
             Error AlreadyEnqueued
         | false, false, false, Choice2Of2 naughty ->
             let newModel = { model with sinBin = SinBin.append naughty model.sinBin }
-            Ok(EnqueueSuccess.SinBinned, newModel)
+            Ok(AggregateSuccess.create EnqueueSuccess.SinBinned newModel)
         | false, false, false, Choice1Of2 passing ->
             let newModel = { model with queue = AttemptQueue.append passing model.queue }
-            Ok(EnqueueSuccess.Enqueued, newModel)
+            Ok(AggregateSuccess.create EnqueueSuccess.Enqueued newModel)
 
 let dequeue: Dequeue =
-    fun number model ->
+    fun command ->
+        let number = command.command
+        let model = command.aggregate
+
         let isCurrent = model.activeBatch |> ActiveBatch.contains number
         let isEnqueued = model.queue |> AttemptQueue.contains number
         let isSinBinned = model.sinBin |> SinBin.contains number
@@ -398,7 +419,7 @@ let dequeue: Dequeue =
                           activeBatch = newBatch }
 
                 let result = DequeuedAndAbortRunningBatch(pullRequests, number)
-                Ok(result, newModel)
+                Ok(AggregateSuccess.create result newModel)
 
             | Merging _ ->
                 Error RejectedInMergingBatch
@@ -410,18 +431,19 @@ let dequeue: Dequeue =
         | _, true, _ ->
             let newQueue = model.queue |> AttemptQueue.removeByNumber number
             let newModel = { model with queue = newQueue }
-            Ok(Dequeued, newModel)
+            Ok(AggregateSuccess.create Dequeued newModel)
 
         | _, _, true ->
             let newSinBin = model.sinBin |> SinBin.removeByNumber number
             let newModel = { model with sinBin = newSinBin }
-            Ok(Dequeued, newModel)
+            Ok(AggregateSuccess.create Dequeued newModel)
 
         | false, false, false ->
             Error(NotFound)
 
 let startBatch: StartBatch =
-    fun _ model ->
+    fun command ->
+        let model = command.aggregate
         match model.activeBatch, model.queue with
         | Running _, _ -> Error AlreadyRunning
         | Merging _, _ -> Error AlreadyRunning
@@ -435,14 +457,17 @@ let startBatch: StartBatch =
                           queue = remaining }
 
                 let pullRequests = batch |> RunnableBatch.toPullRequests
-                Ok(PerformBatchBuild(pullRequests), newModel)
+                Ok(AggregateSuccess.create (PerformBatchBuild pullRequests) newModel)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
                 // SMELL: how could execution get here and result is empty?
                 Error EmptyQueue
 
 let ingestBuildUpdate: IngestBuildUpdate =
-    fun message model ->
+    fun command ->
+        let message = command.command
+        let model = command.aggregate
+
         match model.activeBatch, message with
         | Running failed, BuildMessage.Failure ->
             match bisect failed with
@@ -455,7 +480,7 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                Ok(ReportBuildFailureNoRetry prs, newModel)
+                Ok(AggregateSuccess.create (ReportBuildFailureNoRetry prs) newModel)
 
             | Some(first, second) ->
                 let queue, nextActive = failWithRetry first second model.queue
@@ -466,14 +491,14 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                Ok(ReportBuildFailureWithRetry prs, newModel)
+                Ok(AggregateSuccess.create (ReportBuildFailureWithRetry prs) newModel)
 
         | Running succeeded, BuildMessage.Success targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
 
-            Ok(PerformBatchMerge(pullRequests, targetHead), newModel)
+            Ok(AggregateSuccess.create (PerformBatchMerge(pullRequests, targetHead)) newModel)
 
         | NoBatch, BuildMessage.Failure ->
             Error NotCurrentlyBuilding
@@ -485,7 +510,9 @@ let ingestBuildUpdate: IngestBuildUpdate =
             Error NotCurrentlyBuilding
 
 let ingestMergeUpdate: IngestMergeUpdate =
-    fun message model ->
+    fun command ->
+        let message = command.command
+        let model = command.aggregate
         match model.activeBatch, message with
         | Merging merged, MergeMessage.Success ->
             let queue, batch = completeMerge merged model.queue
@@ -497,7 +524,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
 
             let pullRequests = merged |> MergeableBatch.toPullRequests
 
-            Ok(MergeComplete pullRequests, newModel)
+            Ok(AggregateSuccess.create (MergeComplete pullRequests) newModel)
         | Merging unmerged, MergeMessage.Failure ->
             let queue, batch = failMerge unmerged model.queue
             let pullRequests = unmerged |> MergeableBatch.toPullRequests
@@ -507,14 +534,15 @@ let ingestMergeUpdate: IngestMergeUpdate =
                       queue = queue
                       activeBatch = batch }
 
-            Ok(ReportMergeFailure pullRequests, newModel)
+            Ok(AggregateSuccess.create (ReportMergeFailure pullRequests) newModel)
         | _, _ ->
             Error NotCurrentlyMerging
 
 let updatePullRequest: UpdatePullRequest =
-    fun pullRequestUpdate model ->
-        let number = pullRequestUpdate.number
-        let newSha = pullRequestUpdate.sha
+    fun command ->
+        let model = command.aggregate
+        let number = command.command.number
+        let newSha = command.command.sha
 
         let newSinBin = model.sinBin |> updateShaInSinBin number newSha
         let modelWithNewSinBin = { model with sinBin = newSinBin }
@@ -532,14 +560,14 @@ let updatePullRequest: UpdatePullRequest =
                           sinBin = newSinBin }
 
                 let pullRequests = batch |> RunnableBatch.toPullRequests
-                AbortRunningBatch(pullRequests, number), newModel
+                AggregateSuccess.create (AbortRunningBatch(pullRequests, number)) newModel
 
             else
                 let newModel =
                     { modelWithNewSinBin with
                           queue = newQueue
                           sinBin = newSinBin }
-                UpdatePullRequestSuccess.NoChange, newModel
+                AggregateSuccess.create UpdatePullRequestSuccess.NoChange newModel
         | NoBatch ->
             let newQueue, newSinBin =
                 updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -548,7 +576,7 @@ let updatePullRequest: UpdatePullRequest =
                 { modelWithNewSinBin with
                       queue = newQueue
                       sinBin = newSinBin }
-            UpdatePullRequestSuccess.NoChange, newModel
+            AggregateSuccess.create UpdatePullRequestSuccess.NoChange newModel
 
         | Merging batch ->
             let inMergingBatch = batch |> MergeableBatch.contains number
@@ -558,7 +586,7 @@ let updatePullRequest: UpdatePullRequest =
                     { modelWithNewSinBin with activeBatch = NoBatch }
 
                 let pullRequests = batch |> MergeableBatch.toPullRequests
-                AbortMergingBatch(pullRequests, number), newModel
+                AggregateSuccess.create (AbortMergingBatch(pullRequests, number)) newModel
             else
                 let newQueue, newSinBin =
                     updateShaInQueue number newSha modelWithNewSinBin.queue modelWithNewSinBin.sinBin
@@ -568,13 +596,14 @@ let updatePullRequest: UpdatePullRequest =
                           queue = newQueue
                           sinBin = newSinBin }
 
-                UpdatePullRequestSuccess.NoChange, newModel
+                AggregateSuccess.create UpdatePullRequestSuccess.NoChange newModel
 
 let updateStatuses: UpdateStatuses =
-    fun statusUpdate model ->
-        let number = statusUpdate.number
-        let buildSha = statusUpdate.sha
-        let statuses = statusUpdate.statuses
+    fun command ->
+        let number = command.command.number
+        let buildSha = command.command.sha
+        let statuses = command.command.statuses
+        let model = command.aggregate
 
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
@@ -585,7 +614,7 @@ let updateStatuses: UpdateStatuses =
                   queue = newQueue
                   sinBin = newSinBin }
 
-        UpdateStatusesSuccess.NoChange, newModel
+        AggregateSuccess.create UpdateStatusesSuccess.NoChange newModel
 
 // "Properties"
 

@@ -18,18 +18,13 @@ Done
 1.  dequeue a PR
 
 1.  Refactor domain into Types & Functions & "Services"
-    1.  move command stuff into domain
-    1.  change command workflow to be railway
-    1.  replace failwithf calls with ValidationFailed results
-    1.  use a result computation expression to simplify validation
     1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
     1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
-    1.  GOAL(?): domain functions are not unwrapping types
 
 Backlog
-1.  codify the pattern of domain services returning a new Merge Queue, seems like a Command success type thing
-    -  commands don't need to return the merge queue
 1.  solidify ubiquitous language around running (building || merging) batches
+1.  GOAL(?): domain functions are not unwrapping types
+1.  use a result computation expression to simplify validation
 1.  view where my PR is
 1.  add assertions on the thrown away results
 1.  failed single batch PRs are not dequeued only sin binned

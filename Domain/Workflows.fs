@@ -78,45 +78,34 @@ module Enqueue =
         fun command -> toPullRequestDomain command.number command.sha command.statuses
 
     /// Loading the MergeQueue
-    type private StepInput =
-        { pullRequest: PullRequest
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = PullRequest -> StepInput
+    type private LoadMergeQueue = PullRequest -> Command<PullRequest>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun pr ->
-            let model = load()
-            { pullRequest = pr
-              mergeQueue = model }
+        fun command -> load() |> Command.create command
 
     /// Enqueue step
-    type private EnqueueStep = StepInput -> Result<EnqueueSuccess * MergeQueue, EnqueueError>
+    type private EnqueueStep = DomainService<PullRequest, EnqueueSuccess, EnqueueError>
 
     let private enqueueStep: EnqueueStep =
-        fun input -> input.mergeQueue |> Domain.enqueue input.pullRequest
+        enqueue
 
     /// Save changes to the MergeQueue
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun model -> save model
+    type private SaveMergeQueue = AggregateSuccess<EnqueueSuccess> -> unit
 
     // the final workflow
     let enqueue (load: Load) (save: Save): EnqueueWorkflow =
-        let loadMergeQueue = loadMergeQueue load
-        let saveMergeQueue = saveMergeQueue save
-
         let validatePullRequest = validatePullRequest >> (Result.mapError Error.ValidationError)
+        let loadMergeQueue = loadMergeQueue load
         let enqueueStep = enqueueStep >> (Result.mapError Error.EnqueueError)
+        let saveMergeQueue = AggregateSuccess.aggregate >> save
 
         fun command ->
             command
             |> validatePullRequest
             |> Result.map loadMergeQueue
             |> Common.bind enqueueStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module Dequeue =
     open WorkflowTypes.Dequeue
@@ -128,91 +117,67 @@ module Dequeue =
         fun command -> command.number |> PullRequestNumber.create
 
     /// Loading
-    type private StepInput =
-        { command: PullRequestNumber
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = PullRequestNumber -> StepInput
+    type private LoadMergeQueue = PullRequestNumber -> Command<PullRequestNumber>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let mergeQueue = load()
-            { command = command
-              mergeQueue = mergeQueue }
+        fun command -> load() |> Command.create command
 
     /// Dequeue step
-    type private DequeueStep = StepInput -> Result<DequeueSuccess * MergeQueue, DequeueError>
+    type private DequeueStep = DomainService<PullRequestNumber, DequeueSuccess, DequeueError>
 
     let private dequeueStep: DequeueStep =
-        fun input -> input.mergeQueue |> Domain.dequeue input.command
+        dequeue
 
     /// Save
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
+    type private SaveMergeQueue = AggregateSuccess<DequeueSuccess> -> unit
 
     // the final workflow
     let dequeue (load: Load) (save: Save): DequeueWorkflow =
         let validateDequeue = validateDequeue >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
         let dequeueStep = dequeueStep >> Result.mapError DequeueError
-        let saveMergeQueue = saveMergeQueue save
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> validateDequeue
             |> Result.map loadMergeQueue
             |> Common.bind dequeueStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module StartBatch =
     open WorkflowTypes.StartBatch
     // Implementation
 
     /// Load
-    type private StepInput =
-        { command: unit
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = unit -> StepInput
+    type private LoadMergeQueue = unit -> Command<unit>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let mergeQueue = load()
-            { command = command
-              mergeQueue = mergeQueue }
+        fun command -> load() |> Command.create command
 
     /// Start the batch
-    type private StartBatchStep = StepInput -> Result<StartBatchSuccess * MergeQueue, StartBatchError>
-
-    let private toInput (mergeQueue: MergeQueue): StepInput =
-        { command = ()
-          mergeQueue = mergeQueue }
+    type private StartBatchStep = DomainService<unit, StartBatchSuccess, StartBatchError>
 
     let private startBatchStep: StartBatchStep =
-        fun input -> input.mergeQueue |> startBatch()
+        startBatch
 
     /// Save
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
+    type private SaveMergeQueue = AggregateSuccess<StartBatchSuccess> -> unit
 
     // SMELL: what calls this? synchronous after some other call?
     // maybe make start batch private, and call it inside enqueue && updateStatus?
     let startBatch (load: Load) (save: Save): StartBatchWorkflow =
         let loadMergeQueue = loadMergeQueue load
         let startBatchStep = startBatchStep >> Result.mapError StartBatchError
-        let saveMergeQueue = saveMergeQueue save
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> Common.switch (loadMergeQueue)
             |> Common.bind startBatchStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module IngestBuild =
     open WorkflowTypes.IngestBuild
@@ -232,48 +197,34 @@ module IngestBuild =
                 Ok BuildMessage.Failure
 
     /// Loading
-    type private StepInput =
-        { command: BuildMessage
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = BuildMessage -> StepInput
+    type private LoadMergeQueue = BuildMessage -> Command<BuildMessage>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let model = load()
-            { command = command
-              mergeQueue = model }
+        fun command -> load() |> Command.create command
 
     /// Ingest
-    type private IngestBuildStep = StepInput -> Result<IngestBuildSuccess * MergeQueue, IngestBuildError>
+    type private IngestBuildStep = DomainService<BuildMessage, IngestBuildSuccess, IngestBuildError>
 
     let private ingestBuildStep: IngestBuildStep =
-        fun input ->
-            let message = input.command
-            let model = input.mergeQueue
-
-            ingestBuildUpdate message model
+        ingestBuildUpdate
 
     /// Save
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
+    type private SaveMergeQueue = AggregateSuccess<IngestBuildSuccess> -> unit
 
     /// The final workflow
     let ingestBuildUpdate (load: Load) (save: Save): IngestBuildWorkflow =
         let validateCommand = validateCommand >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
         let ingestBuildStep = ingestBuildStep >> Result.mapError IngestBuildError
-        let saveMergeQueue = saveMergeQueue save
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> validateCommand
             |> Result.map loadMergeQueue
             |> Result.bind ingestBuildStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module IngestMerge =
     open WorkflowTypes.IngestMerge
@@ -291,42 +242,33 @@ module IngestMerge =
             message
 
     // Load merge queue
-    type private StepInput =
-        { command: MergeMessage
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = MergeMessage -> StepInput
+    type private LoadMergeQueue = MergeMessage -> Command<MergeMessage>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let mergeQueue = load()
-            { command = command
-              mergeQueue = mergeQueue }
+        fun command -> load() |> Command.create command
 
     // Ingest merge update
-    type private IngestMergeStep = StepInput -> Result<IngestMergeSuccess * MergeQueue, IngestMergeError>
+    type private IngestMergeStep = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
 
     let private ingestMergeStep: IngestMergeStep =
-        fun input -> input.mergeQueue |> ingestMergeUpdate input.command
+        ingestMergeUpdate
 
     // Save merge queue
-    type private SaveMergeQueue = MergeQueue -> unit
+    type private SaveMergeQueue = AggregateSuccess<IngestMergeSuccess> -> unit
 
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
-
+    // the final workflow
     let ingestMergeUpdate (load: Load) (save: Save): IngestMergeWorkflow =
         let loadMergeQueue = loadMergeQueue load
         let ingestMergeStep = ingestMergeStep >> Result.mapError IngestMergeError
-        let saveMergeQueue = saveMergeQueue save
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> Common.switch validateCommand
             |> Result.map loadMergeQueue
             |> Result.bind ingestMergeStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module UpdatePullRequest =
     open WorkflowTypes.UpdatePullRequest
@@ -350,43 +292,31 @@ module UpdatePullRequest =
                 Error(sprintf "Validation failed: %s" error)
 
     // Load merge queue
-    type private StepInput =
-        { command: PullRequestUpdate
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = PullRequestUpdate -> StepInput
+    type private LoadMergeQueue = PullRequestUpdate -> Command<PullRequestUpdate>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let mergeQueue = load()
-            { command = command
-              mergeQueue = mergeQueue }
+        fun command -> load() |> Command.create command
 
     // Update the SHA
-    type private UpdateStep = StepInput -> (UpdatePullRequestSuccess * MergeQueue)
-
-    let private updateStep: UpdateStep =
-        fun input -> input.mergeQueue |> updatePullRequest input.command
+    type private UpdateStep = Command<PullRequestUpdate> -> AggregateSuccess<UpdatePullRequestSuccess>
 
     // Save merge queue
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
+    type private SaveMergeQueue = AggregateSuccess<UpdatePullRequestSuccess> -> unit
 
     // Implementation
     let updatePullRequestSha (load: Load) (save: Save): UpdatePullRequestWorkflow =
         let validateCommand = validateCommand >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
-        let saveMergeQueue = saveMergeQueue save
+        let updateStep: UpdateStep = updatePullRequest
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> validateCommand
             |> Result.map loadMergeQueue
             |> Result.map updateStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success
 
 module UpdateStatuses =
     open WorkflowTypes.UpdateStatuses
@@ -419,40 +349,28 @@ module UpdateStatuses =
                 Error error
 
     // Load merge queue
-    type private StepInput =
-        { command: StatusUpdate
-          mergeQueue: MergeQueue }
-
-    type private LoadMergeQueue = StatusUpdate -> StepInput
+    type private LoadMergeQueue = StatusUpdate -> Command<StatusUpdate>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun command ->
-            let mergeQueue = load()
-            { command = command
-              mergeQueue = mergeQueue }
+        fun command -> load() |> Command.create command
 
     // Update the statuses
-    type private UpdateStep = StepInput -> (UpdateStatusesSuccess * MergeQueue)
-
-    let private updateStep: UpdateStep =
-        fun input -> input.mergeQueue |> updateStatuses input.command
+    type private UpdateStep = Command<StatusUpdate> -> AggregateSuccess<UpdateStatusesSuccess>
 
     // Save
-    type private SaveMergeQueue = MergeQueue -> unit
-
-    let private saveMergeQueue (save: Save): SaveMergeQueue =
-        fun mergeQueue -> save mergeQueue
+    type private SaveMergeQueue = AggregateSuccess<UpdateStatusesSuccess> -> unit
 
     // Implementation
     let updateStatuses (load: Load) (save: Save): UpdateStatusWorkflow =
         let validateCommand = validateCommand >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
-        let saveMergeQueue = saveMergeQueue save
+        let updateStep: UpdateStep = updateStatuses
+        let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->
             command
             |> validateCommand
             |> Result.map loadMergeQueue
             |> Result.map updateStep
-            |> Common.tee (Common.mapSecond saveMergeQueue)
-            |> Common.mapFirst id
+            |> Common.tee (Result.map saveMergeQueue)
+            |> Result.map AggregateSuccess.success

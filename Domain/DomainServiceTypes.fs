@@ -3,7 +3,16 @@ namespace MergeQueue
 open DomainTypes
 
 module DomainServiceTypes =
-    type DomainService<'a, 'b, 'error> = 'a -> MergeQueue -> Result<'b * MergeQueue, 'error>
+    // PATTERN: Maybe a pattern of MergeQueue -> (Something) -> Result<Success * MergeQueue, Error>
+    type Command<'a> =
+        { command: 'a
+          aggregate: MergeQueue }
+
+    type AggregateSuccess<'b> =
+        { success: 'b
+          aggregate: MergeQueue }
+
+    type DomainService<'a, 'b, 'error> = Command<'a> -> Result<AggregateSuccess<'b>, 'error>
 
     type EnqueueSuccess =
         | Enqueued
@@ -74,7 +83,7 @@ module DomainServiceTypes =
         { number: PullRequestNumber
           sha: SHA }
 
-    type UpdatePullRequest = PullRequestUpdate -> MergeQueue -> (UpdatePullRequestSuccess * MergeQueue)
+    type UpdatePullRequest = Command<PullRequestUpdate> -> AggregateSuccess<UpdatePullRequestSuccess>
 
     type UpdateStatusesSuccess = NoChange
 
@@ -83,6 +92,6 @@ module DomainServiceTypes =
           sha: SHA
           statuses: CommitStatuses }
 
-    type UpdateStatuses = StatusUpdate -> MergeQueue -> (UpdateStatusesSuccess * MergeQueue)
+    type UpdateStatuses = Command<StatusUpdate> -> AggregateSuccess<UpdateStatusesSuccess>
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
