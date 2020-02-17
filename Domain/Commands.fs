@@ -152,35 +152,29 @@ module Dequeue =
     // Implementation
 
     /// Validation
-    type private ValidatedDequeue =
-        { number: PullRequestNumber }
-
-    type private ValidateDequeue = Command -> Result<ValidatedDequeue, string>
+    type private ValidateDequeue = Command -> Result<PullRequestNumber, string>
 
     let private validateDequeue: ValidateDequeue =
-        fun command ->
-            command.number
-            |> PullRequestNumber.create
-            |> Result.map (fun number -> { number = number })
+        fun command -> command.number |> PullRequestNumber.create
 
     /// Loading
     type private StepInput =
-        { number: PullRequestNumber
+        { command: PullRequestNumber
           mergeQueue: MergeQueue }
 
-    type private LoadMergeQueue = ValidatedDequeue -> StepInput
+    type private LoadMergeQueue = PullRequestNumber -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        fun value ->
+        fun command ->
             let mergeQueue = load()
-            { number = value.number
+            { command = command
               mergeQueue = mergeQueue }
 
     /// Dequeue step
     type private DequeueStep = StepInput -> Result<DequeueSuccess * MergeQueue, DequeueError>
 
     let private dequeueStep: DequeueStep =
-        fun input -> input.mergeQueue |> Domain.dequeue input.number
+        fun input -> input.mergeQueue |> Domain.dequeue input.command
 
     /// Save
     type private SaveMergeQueue = MergeQueue -> unit
@@ -218,19 +212,24 @@ module StartBatch =
     // Implementation
 
     /// Load
-    type private LoadMergeQueue = unit -> MergeQueue
+    type private StepInput =
+        { command: unit
+          mergeQueue: MergeQueue }
+
+    type private LoadMergeQueue = unit -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
-        load
+        fun command ->
+            let mergeQueue = load()
+            { command = command
+              mergeQueue = mergeQueue }
 
     /// Start the batch
-    type private StepInput =
-        { mergeQueue: MergeQueue }
-
     type private StartBatchStep = StepInput -> Result<StartBatchSuccess * MergeQueue, StartBatchError>
 
     let private toInput (mergeQueue: MergeQueue): StepInput =
-        { mergeQueue = mergeQueue }
+        { command = ()
+          mergeQueue = mergeQueue }
 
     let private startBatchStep: StartBatchStep =
         fun input -> input.mergeQueue |> startBatch()
@@ -250,7 +249,7 @@ module StartBatch =
 
         fun command ->
             command
-            |> Common.switch (loadMergeQueue >> toInput)
+            |> Common.switch (loadMergeQueue)
             |> Common.bind startBatchStep
             |> Common.tee (Common.mapSecond saveMergeQueue)
             |> Common.mapFirst id
@@ -280,10 +279,7 @@ module IngestBuild =
     // Implementation
 
     /// Validation
-    type private ValidatedCommand =
-        { message: BuildMessage }
-
-    type private ValidateCommand = Command -> Result<ValidatedCommand, string>
+    type private ValidateCommand = Command -> Result<BuildMessage, string>
 
     let private validateCommand: ValidateCommand =
         fun command ->
@@ -292,21 +288,21 @@ module IngestBuild =
             | UnvalidatedBuildMessage.Success(shaValue) ->
                 shaValue
                 |> SHA.create
-                |> Result.map (fun sha -> { message = BuildMessage.Success sha })
+                |> Result.map BuildMessage.Success
             | UnvalidatedBuildMessage.Failure ->
-                Ok { message = BuildMessage.Failure }
+                Ok BuildMessage.Failure
 
     /// Loading
     type private StepInput =
-        { message: BuildMessage
+        { command: BuildMessage
           mergeQueue: MergeQueue }
 
-    type private LoadMergeQueue = ValidatedCommand -> StepInput
+    type private LoadMergeQueue = BuildMessage -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command ->
             let model = load()
-            { message = command.message
+            { command = command
               mergeQueue = model }
 
     /// Ingest
@@ -314,7 +310,7 @@ module IngestBuild =
 
     let private ingestBuildStep: IngestBuildStep =
         fun input ->
-            let message = input.message
+            let message = input.command
             let model = input.mergeQueue
 
             ingestBuildUpdate message model
@@ -323,7 +319,6 @@ module IngestBuild =
     type private SaveMergeQueue = MergeQueue -> unit
 
     let private saveMergeQueue (save: Save): SaveMergeQueue =
-        // SMELL: so much mapping
         fun mergeQueue -> save mergeQueue
 
     /// The final workflow
@@ -362,10 +357,7 @@ module IngestMerge =
     // Implementation
 
     // Validation
-    type private ValidatedCommand =
-        { message: MergeMessage }
-
-    type private ValidateCommand = Command -> ValidatedCommand
+    type private ValidateCommand = Command -> MergeMessage
 
     let private validateCommand: ValidateCommand =
         fun command ->
@@ -374,26 +366,26 @@ module IngestMerge =
                 | Success -> MergeMessage.Success
                 | Failure -> MergeMessage.Failure
 
-            { message = message }
+            message
 
     // Load merge queue
     type private StepInput =
-        { message: MergeMessage
+        { command: MergeMessage
           mergeQueue: MergeQueue }
 
-    type private LoadMergeQueue = ValidatedCommand -> StepInput
+    type private LoadMergeQueue = MergeMessage -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command ->
             let mergeQueue = load()
-            { message = command.message
+            { command = command
               mergeQueue = mergeQueue }
 
     // Ingest merge update
     type private IngestMergeStep = StepInput -> Result<IngestMergeSuccess * MergeQueue, IngestMergeError>
 
     let private ingestMergeStep: IngestMergeStep =
-        fun input -> ingestMergeUpdate input.message input.mergeQueue
+        fun input -> input.mergeQueue |> ingestMergeUpdate input.command
 
     // Save merge queue
     type private SaveMergeQueue = MergeQueue -> unit
@@ -429,11 +421,7 @@ module UpdatePullRequest =
     type UpdatePullRequestWorkflow = Command -> UpdatePullRequestResult
 
     // Validation
-    type private ValidatedCommand =
-        { number: PullRequestNumber
-          sha: SHA }
-
-    type private ValidateCommand = Command -> Result<ValidatedCommand, string>
+    type private ValidateCommand = Command -> Result<PullRequestUpdate, string>
 
     let private validateCommand: ValidateCommand =
         fun command ->
@@ -452,22 +440,22 @@ module UpdatePullRequest =
 
     // Load merge queue
     type private StepInput =
-        { update: ValidatedCommand
+        { command: PullRequestUpdate
           mergeQueue: MergeQueue }
 
-    type private LoadMergeQueue = ValidatedCommand -> StepInput
+    type private LoadMergeQueue = PullRequestUpdate -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command ->
             let mergeQueue = load()
-            { update = command
+            { command = command
               mergeQueue = mergeQueue }
 
     // Update the SHA
     type private UpdateStep = StepInput -> (UpdatePullRequestSuccess * MergeQueue)
 
     let private updateStep: UpdateStep =
-        fun input -> input.mergeQueue |> updatePullRequest (input.update.number, input.update.sha)
+        fun input -> input.mergeQueue |> updatePullRequest input.command
 
     // Save merge queue
     type private SaveMergeQueue = MergeQueue -> unit
@@ -477,11 +465,11 @@ module UpdatePullRequest =
 
     // Implementation
     let updatePullRequestSha (load: Load) (save: Save): UpdatePullRequestWorkflow =
-        fun command ->
-            let validateCommand = validateCommand >> Result.mapError ValidationError
-            let loadMergeQueue = loadMergeQueue load
-            let saveMergeQueue = saveMergeQueue save
+        let validateCommand = validateCommand >> Result.mapError ValidationError
+        let loadMergeQueue = loadMergeQueue load
+        let saveMergeQueue = saveMergeQueue save
 
+        fun command ->
             command
             |> validateCommand
             |> Result.map loadMergeQueue
@@ -505,12 +493,7 @@ module UpdateStatuses =
     type UpdateStatusWorkflow = Command -> UpdateStatusResult
 
     // Validation
-    type private ValidatedCommand =
-        { number: PullRequestNumber
-          sha: SHA
-          statuses: CommitStatuses }
-
-    type private ValidateCommand = Command -> Result<ValidatedCommand, string>
+    type private ValidateCommand = Command -> Result<StatusUpdate, string>
 
     let private validateCommand: ValidateCommand =
         // TODO: chain validation with further processing and return errors
@@ -538,10 +521,10 @@ module UpdateStatuses =
 
     // Load merge queue
     type private StepInput =
-        { command: ValidatedCommand
+        { command: StatusUpdate
           mergeQueue: MergeQueue }
 
-    type private LoadMergeQueue = ValidatedCommand -> StepInput
+    type private LoadMergeQueue = StatusUpdate -> StepInput
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command ->
@@ -553,9 +536,7 @@ module UpdateStatuses =
     type private UpdateStep = StepInput -> (UpdateStatusesSuccess * MergeQueue)
 
     let private updateStep: UpdateStep =
-        fun input ->
-            let command = input.command
-            input.mergeQueue |> updateStatuses (command.number, command.sha, command.statuses)
+        fun input -> input.mergeQueue |> updateStatuses input.command
 
     // Save
     type private SaveMergeQueue = MergeQueue -> unit

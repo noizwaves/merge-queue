@@ -511,7 +511,10 @@ let ingestMergeUpdate: IngestMergeUpdate =
             Error NotCurrentlyMerging
 
 let updatePullRequest: UpdatePullRequest =
-    fun (number, newSha) model ->
+    fun pullRequestUpdate model ->
+        let number = pullRequestUpdate.number
+        let newSha = pullRequestUpdate.sha
+
         let newSinBin = model.sinBin |> updateShaInSinBin number newSha
         let modelWithNewSinBin = { model with sinBin = newSinBin }
 
@@ -567,7 +570,11 @@ let updatePullRequest: UpdatePullRequest =
                 UpdatePullRequestSuccess.NoChange, newModel
 
 let updateStatuses: UpdateStatuses =
-    fun (number, buildSha, statuses) model ->
+    fun statusUpdate model ->
+        let number = statusUpdate.number
+        let buildSha = statusUpdate.sha
+        let statuses = statusUpdate.statuses
+
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
             updateStatusesInSinBin number buildSha statuses model.queue model.sinBin

@@ -1,7 +1,5 @@
 namespace MergeQueue
 
-open System.Collections
-
 module DomainTypes =
     type SHA = SHA of string
 
@@ -187,10 +185,19 @@ module DomainTypes =
         | AbortRunningBatch of List<PullRequest> * PullRequestNumber
         | AbortMergingBatch of List<PullRequest> * PullRequestNumber
 
-    type UpdatePullRequest = PullRequestNumber * SHA -> (MergeQueue -> UpdatePullRequestSuccess * MergeQueue)
+    type PullRequestUpdate =
+        { number: PullRequestNumber
+          sha: SHA }
+
+    type UpdatePullRequest = PullRequestUpdate -> MergeQueue -> (UpdatePullRequestSuccess * MergeQueue)
 
     type UpdateStatusesSuccess = NoChange
 
-    type UpdateStatuses = PullRequestNumber * SHA * CommitStatuses -> (MergeQueue -> UpdateStatusesSuccess * MergeQueue)
+    type StatusUpdate =
+        { number: PullRequestNumber
+          sha: SHA
+          statuses: CommitStatuses }
+
+    type UpdateStatuses = StatusUpdate -> MergeQueue -> (UpdateStatusesSuccess * MergeQueue)
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
