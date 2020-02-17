@@ -442,6 +442,8 @@ let dequeue: Dequeue =
             Error(NotFound)
 
 let startBatch: StartBatch =
+    // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
+    // Maybe it shouldn't be a command
     fun command ->
         let model = command.aggregate
         match model.activeBatch, model.queue with
@@ -457,7 +459,7 @@ let startBatch: StartBatch =
                           queue = remaining }
 
                 let pullRequests = batch |> RunnableBatch.toPullRequests
-                Ok(AggregateSuccess.create (PerformBatchBuild pullRequests) newModel)
+                Ok(AggregateSuccess.create (BatchStarted pullRequests) newModel)
             | None ->
                 // SMELL: impossible code path, all non-empty queues have a next batch...
                 // SMELL: how could execution get here and result is empty?
@@ -480,7 +482,7 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                Ok(AggregateSuccess.create (ReportBuildFailureNoRetry prs) newModel)
+                Ok(AggregateSuccess.create (BuildFailureWontRetry prs) newModel)
 
             | Some(first, second) ->
                 let queue, nextActive = failWithRetry first second model.queue
@@ -491,14 +493,14 @@ let ingestBuildUpdate: IngestBuildUpdate =
                           activeBatch = nextActive }
 
                 let prs = failed |> RunnableBatch.toPullRequests
-                Ok(AggregateSuccess.create (ReportBuildFailureWithRetry prs) newModel)
+                Ok(AggregateSuccess.create (BuildFailureWillRetry prs) newModel)
 
         | Running succeeded, BuildMessage.Success targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
 
-            Ok(AggregateSuccess.create (PerformBatchMerge(pullRequests, targetHead)) newModel)
+            Ok(AggregateSuccess.create (SuccessfullyBuilt(pullRequests, targetHead)) newModel)
 
         | NoBatch, BuildMessage.Failure ->
             Error NotCurrentlyBuilding
@@ -524,7 +526,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
 
             let pullRequests = merged |> MergeableBatch.toPullRequests
 
-            Ok(AggregateSuccess.create (MergeComplete pullRequests) newModel)
+            Ok(AggregateSuccess.create (SuccessfullyMerged pullRequests) newModel)
         | Merging unmerged, MergeMessage.Failure ->
             let queue, batch = failMerge unmerged model.queue
             let pullRequests = unmerged |> MergeableBatch.toPullRequests
@@ -534,7 +536,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
                       queue = queue
                       activeBatch = batch }
 
-            Ok(AggregateSuccess.create (ReportMergeFailure pullRequests) newModel)
+            Ok(AggregateSuccess.create (MergeFailure pullRequests) newModel)
         | _, _ ->
             Error NotCurrentlyMerging
 

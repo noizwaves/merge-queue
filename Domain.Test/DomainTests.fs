@@ -388,7 +388,7 @@ let ``Start a batch``() =
     let (result, state) =
         idleWithTwoPullRequests |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one; two ])
+    let expected: StartBatchResult = Ok(Success.BatchStarted [ one; two ])
     result |> should equal expected
 
     state
@@ -458,7 +458,7 @@ let ``Recieve message that batch successfully builds when batch is running``() =
         |> applyCommands (fun load save ->
             ingestBuildUpdate load save { message = UnvalidatedBuildMessage.Success "12345678" })
 
-    let expected: IngestBuildResult = Ok(PerformBatchMerge([ one; two ], (makeSha "12345678")))
+    let expected: IngestBuildResult = Ok(SuccessfullyBuilt([ one; two ], (makeSha "12345678")))
     result |> should equal expected
 
     state
@@ -477,7 +477,7 @@ let ``Recieve message that batch failed the build when batch is running``() =
         runningQueue
         |> applyCommands (fun load save -> ingestBuildUpdate load save { message = UnvalidatedBuildMessage.Failure })
 
-    let expected: IngestBuildResult = Ok(ReportBuildFailureWithRetry [ one; two ])
+    let expected: IngestBuildResult = Ok(BuildFailureWillRetry [ one; two ])
     result |> should equal expected
 
     state
@@ -505,7 +505,7 @@ let ``Single PR batches that fail to build are dequeued``() =
         runningBatchOfOne
         |> applyCommands (fun load save -> ingestBuildUpdate load save { message = UnvalidatedBuildMessage.Failure })
 
-    let expected: IngestBuildResult = Ok(ReportBuildFailureNoRetry [ one ])
+    let expected: IngestBuildResult = Ok(BuildFailureWontRetry [ one ])
     result |> should equal expected
 
     state
@@ -601,7 +601,7 @@ let ``A Pull Request enqueued during running batch is included in the next batch
     let (result, _) =
         finishedQueue |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ three ])
+    let expected: StartBatchResult = Ok(Success.BatchStarted [ three ])
     result |> should equal expected
 
 // Batch Merge Message ingestion
@@ -614,7 +614,7 @@ let ``Merge success message when batch is being merged``() =
         mergingQueue
         |> applyCommands (fun load save -> ingestMergeUpdate load save { message = UnvalidatedMergeMessage.Success })
 
-    let expected: IngestMergeResult = Ok(MergeComplete [ one; two ])
+    let expected: IngestMergeResult = Ok(SuccessfullyMerged [ one; two ])
     result |> should equal expected
 
     state |> should equal MergeQueue.empty
@@ -631,7 +631,7 @@ let ``Merge failure message when batch is being merged``() =
     |> peekCurrentQueue
     |> should equal [ one; two ]
 
-    let expected: IngestMergeResult = Ok(ReportMergeFailure [ one; two ])
+    let expected: IngestMergeResult = Ok(MergeFailure [ one; two ])
     result |> should equal expected
 
 // PRs are updated
@@ -903,7 +903,7 @@ let ``Failed batches are bisected upon build failure``() =
     let firstResult, firstState =
         failedBuildOfFour |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one; two ])
+    let expected: StartBatchResult = Ok(Success.BatchStarted [ one; two ])
     firstResult |> should equal expected
 
     // fail the first bisected batch
@@ -922,7 +922,7 @@ let ``Failed batches are bisected upon build failure``() =
     let secondResult, secondState =
         bisectedFails |> applyCommands (fun load save -> startBatch load save ())
 
-    let expected: StartBatchResult = Ok(Success.PerformBatchBuild [ one ])
+    let expected: StartBatchResult = Ok(Success.BatchStarted [ one ])
     secondResult |> should equal expected
 
     secondState

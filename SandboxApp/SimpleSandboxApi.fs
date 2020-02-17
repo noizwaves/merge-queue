@@ -140,7 +140,7 @@ let start (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | Ok(PerformBatchBuild _) -> "Starting batch build"
+        | Ok(BatchStarted _) -> "Starting batch build"
         | Error(StartBatchError AlreadyRunning) -> "A batch is already running"
         | Error(StartBatchError EmptyQueue) -> "Queue is empty, no batch to start"
 
@@ -157,12 +157,12 @@ let finish (load: Load) (save: Save) _request: WebPart =
 
     let response =
         match result with
-        | Ok(PerformBatchMerge _) ->
+        | Ok(SuccessfullyBuilt _) ->
             // HACK: do the merge if we should it...
             ingestMergeUpdate' { message = (UnvalidatedMergeMessage.Success) } |> ignore
             "Batch finished"
-        | Ok(ReportBuildFailureWithRetry _) -> "Batch failed"
-        | Ok(ReportBuildFailureNoRetry _) -> "Batch failed"
+        | Ok(BuildFailureWillRetry _) -> "Batch failed"
+        | Ok(BuildFailureWontRetry _) -> "Batch failed"
         | Error(ValidationError help) -> sprintf "Validation error: %s" help
         | Error(IngestBuildError NotCurrentlyBuilding) -> "Merge queue is not running a build, so nothing to update"
 

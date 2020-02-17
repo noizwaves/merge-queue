@@ -3,7 +3,6 @@ namespace MergeQueue
 open DomainTypes
 
 module DomainServiceTypes =
-    // PATTERN: Maybe a pattern of MergeQueue -> (Something) -> Result<Success * MergeQueue, Error>
     type Command<'a> =
         { command: 'a
           aggregate: MergeQueue }
@@ -14,6 +13,8 @@ module DomainServiceTypes =
 
     type DomainService<'a, 'b, 'error> = Command<'a> -> Result<AggregateSuccess<'b>, 'error>
 
+    /// Enqueue
+    /// - add a PR to the queue
     type EnqueueSuccess =
         | Enqueued
         | SinBinned
@@ -24,10 +25,11 @@ module DomainServiceTypes =
 
     type Enqueue = DomainService<PullRequest, EnqueueSuccess, EnqueueError>
 
-    // TODO: make a type for AbortedBatch
-    // TODO: Remove PullRequestNumber from success tuple
+    /// Dequeue
+    /// - remove a PR from the merge queue
     type DequeueSuccess =
         | Dequeued
+        // TODO: make a type for AbortedBatch
         | DequeuedAndAbortRunningBatch of List<PullRequest> * PullRequestNumber
 
     type DequeueError =
@@ -36,9 +38,9 @@ module DomainServiceTypes =
 
     type Dequeue = DomainService<PullRequestNumber, DequeueSuccess, DequeueError>
 
-    // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
-    // Maybe it shouldn't be a command
-    type StartBatchSuccess = PerformBatchBuild of List<PullRequest>
+    /// Start Batch
+    /// - Start a batch building
+    type StartBatchSuccess = BatchStarted of List<PullRequest>
 
     type StartBatchError =
         | AlreadyRunning
@@ -46,35 +48,42 @@ module DomainServiceTypes =
 
     type StartBatch = DomainService<unit, StartBatchSuccess, StartBatchError>
 
-    // TODO: make names less general, more specific to build operation
+    /// Ingest Build Update
+    /// - when a Batch's build finishes
+
     // it's actually an update, not a message
     type BuildMessage =
+        // TODO: make names less general, more specific to build operation
         | Success of SHA
         | Failure
 
     type IngestBuildSuccess =
-        | PerformBatchMerge of List<PullRequest> * SHA
-        | ReportBuildFailureWithRetry of List<PullRequest>
-        | ReportBuildFailureNoRetry of List<PullRequest>
+        | SuccessfullyBuilt of List<PullRequest> * SHA
+        | BuildFailureWillRetry of List<PullRequest>
+        | BuildFailureWontRetry of List<PullRequest>
 
     type IngestBuildError = NotCurrentlyBuilding
 
     type IngestBuildUpdate = DomainService<BuildMessage, IngestBuildSuccess, IngestBuildError>
 
+    /// Ingest Merge Update
+    /// - when a Batch's merge finishes
     type MergeMessage =
         | Success
         | Failure
 
     type IngestMergeSuccess =
-        | MergeComplete of List<PullRequest>
-        | ReportMergeFailure of List<PullRequest>
+        | SuccessfullyMerged of List<PullRequest>
+        | MergeFailure of List<PullRequest>
 
     type IngestMergeError = NotCurrentlyMerging
 
     type IngestMergeUpdate = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
 
-    // TODO: Expand with the other successful outcomes, like moved to Sin Bin
+    /// Update Pull Request
+    /// - when a PR's branch changes
     type UpdatePullRequestSuccess =
+        // TODO: Expand with the other successful outcomes, like moved to Sin Bin
         | NoChange
         | AbortRunningBatch of List<PullRequest> * PullRequestNumber
         | AbortMergingBatch of List<PullRequest> * PullRequestNumber
@@ -85,6 +94,8 @@ module DomainServiceTypes =
 
     type UpdatePullRequest = Command<PullRequestUpdate> -> AggregateSuccess<UpdatePullRequestSuccess>
 
+    /// Update Statuses
+    /// - when the status of a PR's branch changes
     type UpdateStatusesSuccess = NoChange
 
     type StatusUpdate =
