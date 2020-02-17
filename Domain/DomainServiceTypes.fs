@@ -86,5 +86,3 @@ module DomainServiceTypes =
     type UpdateStatuses = StatusUpdate -> MergeQueue -> (UpdateStatusesSuccess * MergeQueue)
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan
-
-

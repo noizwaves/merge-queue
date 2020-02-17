@@ -6,14 +6,20 @@ open MergeQueue.Domain
 open MergeQueue.DomainTypes
 open MergeQueue.DomainServiceTypes
 open MergeQueue.DbTypes
-open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
+open MergeQueue.WorkflowTypes.Enqueue
 open MergeQueue.Workflows.UpdateStatuses
+open MergeQueue.WorkflowTypes.UpdateStatuses
 open MergeQueue.Workflows.Dequeue
+open MergeQueue.WorkflowTypes.Dequeue
 open MergeQueue.Workflows.StartBatch
+open MergeQueue.WorkflowTypes.StartBatch
 open MergeQueue.Workflows.IngestBuild
+open MergeQueue.WorkflowTypes.IngestBuild
 open MergeQueue.Workflows.IngestMerge
+open MergeQueue.WorkflowTypes.IngestMerge
 open MergeQueue.Workflows.UpdatePullRequest
+open MergeQueue.WorkflowTypes.UpdatePullRequest
 
 
 let private getOrFail result =
@@ -32,28 +38,28 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 
 let private one = PullRequest.create (makePullRequestID 1) (makeSha "00001111") [ passedCircleCI ]
 
-let private oneCmd: Enqueue.Command =
+let private oneCmd: MergeQueue.WorkflowTypes.Enqueue.Command =
     { number = 1
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
 let private two = PullRequest.create (makePullRequestID 22) (makeSha "00002222") [ passedCircleCI ]
 
-let private twoCmd: Enqueue.Command =
+let private twoCmd: MergeQueue.WorkflowTypes.Enqueue.Command =
     { number = 22
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
 
 let private three = PullRequest.create (makePullRequestID 333) (makeSha "00003333") [ passedCircleCI ]
 
-let private threeCmd: Enqueue.Command =
+let private threeCmd: MergeQueue.WorkflowTypes.Enqueue.Command =
     { number = 333
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
-let private fourCmd: Enqueue.Command =
+let private fourCmd: MergeQueue.WorkflowTypes.Enqueue.Command =
     { number = 4444
       sha = "00004444"
       statuses = [ "circleci", "Success" ] }

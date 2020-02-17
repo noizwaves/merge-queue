@@ -10,10 +10,15 @@ open MergeQueue.Domain
 open MergeQueue.DbTypes
 open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
+open MergeQueue.WorkflowTypes.Enqueue
 open MergeQueue.Workflows.Dequeue
+open MergeQueue.WorkflowTypes.Dequeue
 open MergeQueue.Workflows.StartBatch
+open MergeQueue.WorkflowTypes.StartBatch
 open MergeQueue.Workflows.IngestBuild
+open MergeQueue.WorkflowTypes.IngestBuild
 open MergeQueue.Workflows.IngestMerge
+open MergeQueue.WorkflowTypes.IngestMerge
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
@@ -78,10 +83,10 @@ let enqueue (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Enqueued) -> "Enqueued"
         | Ok(Success.SinBinned) -> "Sin binned"
-        | Error(Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
+        | Error(WorkflowTypes.Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
-        | Error(Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(WorkflowTypes.Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(WorkflowTypes.Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -102,10 +107,10 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Enqueued) -> "Enqueued"
         | Ok(Success.SinBinned) -> "Sin binned"
-        | Error(Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
+        | Error(WorkflowTypes.Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
-        | Error(Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
-        | Error(Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(WorkflowTypes.Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
+        | Error(WorkflowTypes.Enqueue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson
@@ -114,7 +119,7 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
 let dequeue (load: Load) (save: Save) id: WebPart =
     let dequeue' = dequeue load save
-    let cmd: Dequeue.Command = { number = id }
+    let cmd: WorkflowTypes.Dequeue.Command = { number = id }
 
     let result = dequeue' cmd
 
@@ -122,9 +127,10 @@ let dequeue (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Dequeued) -> "Dequeued"
         | Ok(Success.DequeuedAndAbortRunningBatch _) -> "Dequeued (a running batch was cancelled)"
-        | Error(Dequeue.Error.DequeueError DequeueError.RejectedInMergingBatch) -> "Rejected (in a merging batch)"
-        | Error(Dequeue.Error.DequeueError DequeueError.NotFound) -> "Not found"
-        | Error(Dequeue.Error.ValidationError help) -> sprintf "Validation error: %s" help
+        | Error(WorkflowTypes.Dequeue.Error.DequeueError DequeueError.RejectedInMergingBatch) ->
+            "Rejected (in a merging batch)"
+        | Error(WorkflowTypes.Dequeue.Error.DequeueError DequeueError.NotFound) -> "Not found"
+        | Error(WorkflowTypes.Dequeue.Error.ValidationError help) -> sprintf "Validation error: %s" help
 
     response
     |> toJson

@@ -69,24 +69,7 @@ module Common =
         Result.map (fst >> func)
 
 module Enqueue =
-    // Types
-    type Command =
-        { number: int
-          sha: string
-          statuses: List<string * string> }
-
-    // TODO: convert to some kind of command DTO instead of using the domain type?
-    type Success = EnqueueSuccess
-
-    type Error =
-        | ValidationError of string
-        | EnqueueError of EnqueueError
-
-    type EnqueueResult = Result<Success, Error>
-
-    type EnqueueWorkflow = Command -> EnqueueResult
-
-    // Implementation
+    open WorkflowTypes.Enqueue
 
     /// Validation
     type private ValidatePullRequest = Command -> Result<PullRequest, string>
@@ -136,21 +119,7 @@ module Enqueue =
             |> Common.mapFirst id
 
 module Dequeue =
-    // Types
-    type Command =
-        { number: int }
-
-    type Success = DequeueSuccess
-
-    type Error =
-        | ValidationError of string
-        | DequeueError of DequeueError
-
-    type DequeueResult = Result<Success, Error>
-
-    type DequeueWorkflow = Command -> DequeueResult
-
-    // Implementation
+    open WorkflowTypes.Dequeue
 
     /// Validation
     type private ValidateDequeue = Command -> Result<PullRequestNumber, string>
@@ -199,17 +168,7 @@ module Dequeue =
             |> Common.mapFirst id
 
 module StartBatch =
-    // Types
-    type Command = unit
-
-    type Success = StartBatchSuccess
-
-    type Error = StartBatchError of StartBatchError
-
-    type StartBatchResult = Result<Success, Error>
-
-    type StartBatchWorkflow = Command -> StartBatchResult
-
+    open WorkflowTypes.StartBatch
     // Implementation
 
     /// Load
@@ -256,28 +215,7 @@ module StartBatch =
             |> Common.mapFirst id
 
 module IngestBuild =
-    // Types
-    // TODO: Make this more like a DTO (i.e. not a DU?)
-    type UnvalidatedBuildMessage =
-        | Success of string // the SHA of the failed builds commit
-        | Failure // TODO: how do we know which SHA failed? do we care?
-
-    type Command =
-        { message: UnvalidatedBuildMessage }
-
-    // SMELL: Success type name clashes with Success constructor for BuildMessage
-    type Success = IngestBuildSuccess
-
-    // TODO: Validation error goes here
-    type Error =
-        | ValidationError of string
-        | IngestBuildError of IngestBuildError
-
-    type IngestBuildResult = Result<Success, Error>
-
-    type IngestBuildWorkflow = Command -> IngestBuildResult
-
-    // Implementation
+    open WorkflowTypes.IngestBuild
 
     /// Validation
     type private ValidateCommand = Command -> Result<BuildMessage, string>
@@ -338,24 +276,7 @@ module IngestBuild =
             |> Common.mapFirst id
 
 module IngestMerge =
-    // Types
-    // TODO: This should be a DTO that represents the Batch merged result
-    type UnvalidatedMergeMessage =
-        | Success
-        | Failure
-
-    type Command =
-        { message: UnvalidatedMergeMessage }
-
-    type Success = IngestMergeSuccess
-
-    type Error = IngestMergeError of IngestMergeError
-
-    type IngestMergeResult = Result<IngestMergeSuccess, Error>
-
-    type IngestMergeWorkflow = Command -> IngestMergeResult
-
-    // Implementation
+    open WorkflowTypes.IngestMerge
 
     // Validation
     type private ValidateCommand = Command -> MergeMessage
@@ -408,18 +329,7 @@ module IngestMerge =
             |> Common.mapFirst id
 
 module UpdatePullRequest =
-    // Types
-    type Command =
-        { number: int
-          sha: string }
-
-    type Success = UpdatePullRequestSuccess
-
-    type Error = ValidationError of string
-
-    type UpdatePullRequestResult = Result<Success, Error>
-
-    type UpdatePullRequestWorkflow = Command -> UpdatePullRequestResult
+    open WorkflowTypes.UpdatePullRequest
 
     // Validation
     type private ValidateCommand = Command -> Result<PullRequestUpdate, string>
@@ -479,19 +389,7 @@ module UpdatePullRequest =
             |> Common.mapFirst id
 
 module UpdateStatuses =
-    // Types
-    type Command =
-        { number: int
-          sha: string
-          statuses: List<string * string> }
-
-    type Success = UpdateStatusesSuccess
-
-    type Error = ValidationError of string
-
-    type UpdateStatusResult = Result<Success, Error>
-
-    type UpdateStatusWorkflow = Command -> UpdateStatusResult
+    open WorkflowTypes.UpdateStatuses
 
     // Validation
     type private ValidateCommand = Command -> Result<StatusUpdate, string>
