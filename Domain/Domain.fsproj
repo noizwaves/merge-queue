@@ -6,9 +6,10 @@
 
   <ItemGroup>
     <Compile Include="DomainTypes.fs" />
+    <Compile Include="DomainServiceTypes.fs" />
     <Compile Include="Domain.fs" />
     <Compile Include="DbTypes.fs" />
-    <Compile Include="Commands.fs" />
+    <Compile Include="Workflows.fs" />
     <Compile Include="InMemoryRepository.fs" />
   </ItemGroup>
 

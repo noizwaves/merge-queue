@@ -1,6 +1,7 @@
-module MergeQueue.Commands
+module MergeQueue.Workflows
 
 open MergeQueue.DomainTypes
+open MergeQueue.DomainServiceTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 

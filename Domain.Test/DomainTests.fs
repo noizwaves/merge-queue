@@ -4,15 +4,16 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
+open MergeQueue.DomainServiceTypes
 open MergeQueue.DbTypes
-open MergeQueue.Commands
-open MergeQueue.Commands.Enqueue
-open MergeQueue.Commands.UpdateStatuses
-open MergeQueue.Commands.Dequeue
-open MergeQueue.Commands.StartBatch
-open MergeQueue.Commands.IngestBuild
-open MergeQueue.Commands.IngestMerge
-open MergeQueue.Commands.UpdatePullRequest
+open MergeQueue.Workflows
+open MergeQueue.Workflows.Enqueue
+open MergeQueue.Workflows.UpdateStatuses
+open MergeQueue.Workflows.Dequeue
+open MergeQueue.Workflows.StartBatch
+open MergeQueue.Workflows.IngestBuild
+open MergeQueue.Workflows.IngestMerge
+open MergeQueue.Workflows.UpdatePullRequest
 
 
 let private getOrFail result =

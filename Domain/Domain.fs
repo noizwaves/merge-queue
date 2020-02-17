@@ -1,6 +1,7 @@
 ﻿module MergeQueue.Domain
 
 open MergeQueue.DomainTypes
+open MergeQueue.DomainServiceTypes
 
 module PullRequest =
     let create (number: PullRequestNumber) (branchHead: SHA) (commitStatuses: CommitStatuses): PullRequest =

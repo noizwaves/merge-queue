@@ -5,14 +5,15 @@ open Suave.Operators
 open Newtonsoft.Json
 open Newtonsoft.Json.Serialization
 open MergeQueue.DomainTypes
+open MergeQueue.DomainServiceTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
-open MergeQueue.Commands
-open MergeQueue.Commands.Enqueue
-open MergeQueue.Commands.Dequeue
-open MergeQueue.Commands.StartBatch
-open MergeQueue.Commands.IngestBuild
-open MergeQueue.Commands.IngestMerge
+open MergeQueue.Workflows
+open MergeQueue.Workflows.Enqueue
+open MergeQueue.Workflows.Dequeue
+open MergeQueue.Workflows.StartBatch
+open MergeQueue.Workflows.IngestBuild
+open MergeQueue.Workflows.IngestMerge
 
 let private toJson v =
     let jsonSerializerSettings = JsonSerializerSettings()
