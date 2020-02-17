@@ -5,34 +5,6 @@ open MergeQueue.DomainServiceTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
 
-let rec private consolidateResultList<'a, 'b> (results: List<Result<'a, 'b>>): Result<List<'a>, 'b> =
-    match results with
-    | [] ->
-        Ok []
-    | Error b :: tail ->
-        Error b
-    | Ok a :: tail ->
-        tail
-        |> consolidateResultList
-        |> Result.map (fun aa -> a :: aa)
-
-// TODO: tidy this up with computation expressions and composition
-// TODO: could this be inlined to Enqueue module?
-let private toPullRequestDomain (number: int) (sha: string) (statuses: List<string * string>): Result<PullRequest, string> =
-    let number' = PullRequestNumber.create number
-    let sha' = SHA.create sha
-
-    let statuses' =
-        statuses
-        |> List.map CommitStatus.create
-        |> consolidateResultList
-
-    match number', sha', statuses' with
-    | Error err, _, _ -> Error err
-    | _, Error err, _ -> Error err
-    | _, _, Error err -> Error err
-    | Ok number, Ok sha, Ok statuses -> Ok(PullRequest.create number sha statuses)
-
 module Common =
     // Input is a func: a' -> Result<b', e'>
     // Produces a func: Result<a', e'> -> Result<b', e'>
@@ -68,6 +40,17 @@ module Common =
     let mapFirst func =
         Result.map (fst >> func)
 
+    let rec consolidateErrors (results: List<Result<'a, 'b>>): Result<List<'a>, 'b> =
+        match results with
+        | [] ->
+            Ok []
+        | Error b :: tail ->
+            Error b
+        | Ok a :: tail ->
+            tail
+            |> consolidateErrors
+            |> Result.map (fun aa -> a :: aa)
+
 module Enqueue =
     // Types
     type Command =
@@ -90,7 +73,21 @@ module Enqueue =
     type private ValidatePullRequest = Command -> Result<PullRequest, string>
 
     let private validatePullRequest: ValidatePullRequest =
-        fun command -> toPullRequestDomain command.number command.sha command.statuses
+        // TODO: tidy this up with computation expressions and composition
+        fun command ->
+            let number' = PullRequestNumber.create command.number
+            let sha' = SHA.create command.sha
+
+            let statuses' =
+                command.statuses
+                |> List.map CommitStatus.create
+                |> Common.consolidateErrors
+
+            match number', sha', statuses' with
+            | Error err, _, _ -> Error err
+            | _, Error err, _ -> Error err
+            | _, _, Error err -> Error err
+            | Ok number, Ok sha, Ok statuses -> Ok(PullRequest.create number sha statuses)
 
     /// Loading the MergeQueue
     type private LoadMergeQueue = PullRequest -> Command<PullRequest>
@@ -425,7 +422,7 @@ module UpdateStatuses =
             let statuses' =
                 command.statuses
                 |> List.map CommitStatus.create
-                |> consolidateResultList
+                |> Common.consolidateErrors
 
             match number', buildSha', statuses' with
             | Ok number, Ok buildSha, Ok statuses ->
