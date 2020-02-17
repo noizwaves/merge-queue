@@ -50,10 +50,7 @@ module DomainServiceTypes =
 
     /// Ingest Build Update
     /// - when a Batch's build finishes
-
-    // it's actually an update, not a message
-    type BuildMessage =
-        // TODO: make names less general, more specific to build operation
+    type BuildProgress =
         | Success of SHA
         | Failure
 
@@ -64,11 +61,11 @@ module DomainServiceTypes =
 
     type IngestBuildError = NotCurrentlyBuilding
 
-    type IngestBuildUpdate = DomainService<BuildMessage, IngestBuildSuccess, IngestBuildError>
+    type IngestBuildProgress = DomainService<BuildProgress, IngestBuildSuccess, IngestBuildError>
 
     /// Ingest Merge Update
     /// - when a Batch's merge finishes
-    type MergeMessage =
+    type MergeProgress =
         | Success
         | Failure
 
@@ -78,19 +75,19 @@ module DomainServiceTypes =
 
     type IngestMergeError = NotCurrentlyMerging
 
-    type IngestMergeUpdate = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
+    type IngestMergeUpdate = DomainService<MergeProgress, IngestMergeSuccess, IngestMergeError>
 
     /// Update Pull Request
     /// - when a PR's branch changes
+    type PullRequestUpdate =
+        { number: PullRequestNumber
+          sha: SHA }
+
     type UpdatePullRequestSuccess =
         // TODO: Expand with the other successful outcomes, like moved to Sin Bin
         | NoChange
         | AbortRunningBatch of List<PullRequest> * PullRequestNumber
         | AbortMergingBatch of List<PullRequest> * PullRequestNumber
-
-    type PullRequestUpdate =
-        { number: PullRequestNumber
-          sha: SHA }
 
     type UpdatePullRequest = Command<PullRequestUpdate> -> AggregateSuccess<UpdatePullRequestSuccess>
 

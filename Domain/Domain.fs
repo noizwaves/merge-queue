@@ -465,13 +465,13 @@ let startBatch: StartBatch =
                 // SMELL: how could execution get here and result is empty?
                 Error EmptyQueue
 
-let ingestBuildUpdate: IngestBuildUpdate =
+let ingestBuildUpdate: IngestBuildProgress =
     fun command ->
         let message = command.command
         let model = command.aggregate
 
         match model.activeBatch, message with
-        | Running failed, BuildMessage.Failure ->
+        | Running failed, BuildProgress.Failure ->
             match bisect failed with
             | None ->
                 let queue, nextActive = failWithoutRetry failed model.queue
@@ -495,20 +495,20 @@ let ingestBuildUpdate: IngestBuildUpdate =
                 let prs = failed |> RunnableBatch.toPullRequests
                 Ok(AggregateSuccess.create (BuildFailureWillRetry prs) newModel)
 
-        | Running succeeded, BuildMessage.Success targetHead ->
+        | Running succeeded, BuildProgress.Success targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
 
             Ok(AggregateSuccess.create (SuccessfullyBuilt(pullRequests, targetHead)) newModel)
 
-        | NoBatch, BuildMessage.Failure ->
+        | NoBatch, BuildProgress.Failure ->
             Error NotCurrentlyBuilding
-        | Merging _, BuildMessage.Failure ->
+        | Merging _, BuildProgress.Failure ->
             Error NotCurrentlyBuilding
-        | NoBatch, BuildMessage.Success _ ->
+        | NoBatch, BuildProgress.Success _ ->
             Error NotCurrentlyBuilding
-        | Merging _, BuildMessage.Success _ ->
+        | Merging _, BuildProgress.Success _ ->
             Error NotCurrentlyBuilding
 
 let ingestMergeUpdate: IngestMergeUpdate =
@@ -516,7 +516,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
         let message = command.command
         let model = command.aggregate
         match model.activeBatch, message with
-        | Merging merged, MergeMessage.Success ->
+        | Merging merged, MergeProgress.Success ->
             let queue, batch = completeMerge merged model.queue
 
             let newModel =
@@ -527,7 +527,7 @@ let ingestMergeUpdate: IngestMergeUpdate =
             let pullRequests = merged |> MergeableBatch.toPullRequests
 
             Ok(AggregateSuccess.create (SuccessfullyMerged pullRequests) newModel)
-        | Merging unmerged, MergeMessage.Failure ->
+        | Merging unmerged, MergeProgress.Failure ->
             let queue, batch = failMerge unmerged model.queue
             let pullRequests = unmerged |> MergeableBatch.toPullRequests
 

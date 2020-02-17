@@ -234,7 +234,7 @@ module IngestBuild =
     type IngestBuildWorkflow = Command -> IngestBuildResult
 
     /// Validation
-    type private ValidateCommand = Command -> Result<BuildMessage, string>
+    type private ValidateCommand = Command -> Result<BuildProgress, string>
 
     let private validateCommand: ValidateCommand =
         fun command ->
@@ -243,18 +243,18 @@ module IngestBuild =
             | UnvalidatedBuildMessage.Success(shaValue) ->
                 shaValue
                 |> SHA.create
-                |> Result.map BuildMessage.Success
+                |> Result.map BuildProgress.Success
             | UnvalidatedBuildMessage.Failure ->
-                Ok BuildMessage.Failure
+                Ok BuildProgress.Failure
 
     /// Loading
-    type private LoadMergeQueue = BuildMessage -> Command<BuildMessage>
+    type private LoadMergeQueue = BuildProgress -> Command<BuildProgress>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command -> load() |> Command.create command
 
     /// Ingest
-    type private IngestBuildStep = DomainService<BuildMessage, IngestBuildSuccess, IngestBuildError>
+    type private IngestBuildStep = DomainService<BuildProgress, IngestBuildSuccess, IngestBuildError>
 
     let private ingestBuildStep: IngestBuildStep =
         ingestBuildUpdate
@@ -296,25 +296,25 @@ module IngestMerge =
     type IngestMergeWorkflow = Command -> IngestMergeResult
 
     // Validation
-    type private ValidateCommand = Command -> MergeMessage
+    type private ValidateCommand = Command -> MergeProgress
 
     let private validateCommand: ValidateCommand =
         fun command ->
             let message =
                 match command.message with
-                | Success -> MergeMessage.Success
-                | Failure -> MergeMessage.Failure
+                | Success -> MergeProgress.Success
+                | Failure -> MergeProgress.Failure
 
             message
 
     // Load merge queue
-    type private LoadMergeQueue = MergeMessage -> Command<MergeMessage>
+    type private LoadMergeQueue = MergeProgress -> Command<MergeProgress>
 
     let private loadMergeQueue (load: Load): LoadMergeQueue =
         fun command -> load() |> Command.create command
 
     // Ingest merge update
-    type private IngestMergeStep = DomainService<MergeMessage, IngestMergeSuccess, IngestMergeError>
+    type private IngestMergeStep = DomainService<MergeProgress, IngestMergeSuccess, IngestMergeError>
 
     let private ingestMergeStep: IngestMergeStep =
         ingestMergeUpdate
