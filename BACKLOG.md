@@ -17,14 +17,12 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
-1.  Refactor domain into Types & Functions & "Services"
-    1.  change commands and some domain functions to from Try & Maybe -> X to Do -> Result<X>
-    1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
-
 Backlog
+1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
 1.  solidify ubiquitous language around running (building || merging) batches
 1.  GOAL(?): domain functions are not unwrapping types
 1.  use a result computation expression to simplify validation
+1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
 1.  view where my PR is
 1.  add assertions on the thrown away results
 1.  failed single batch PRs are not dequeued only sin binned

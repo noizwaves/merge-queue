@@ -168,22 +168,22 @@ module PlannedBatch =
 let getBuildStatus: GetBuildStatus =
     fun pr ->
         match pr.statuses with
-        | [] -> BuildFailure
+        | [] -> BuildStatus.BuildFailure
         | statuses ->
             let anyFailures = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Failure)
             let anyPending = statuses |> List.tryFind (fun s -> s.state = CommitStatusState.Pending)
 
             match anyFailures, anyPending with
-            | Some _, _ -> BuildFailure
-            | _, Some _ -> BuildPending
-            | _, _ -> BuildSuccess
+            | Some _, _ -> BuildStatus.BuildFailure
+            | _, Some _ -> BuildStatus.BuildPending
+            | _, _ -> BuildStatus.BuildSuccess
 
 let prepareForQueue: PrepareForQueue =
     fun pr ->
         match getBuildStatus pr with
-        | BuildSuccess -> PassingPullRequest pr |> Choice1Of2
-        | BuildPending -> NaughtyPullRequest pr |> Choice2Of2
-        | BuildFailure -> NaughtyPullRequest pr |> Choice2Of2
+        | BuildStatus.BuildSuccess -> PassingPullRequest pr |> Choice1Of2
+        | BuildStatus.BuildPending -> NaughtyPullRequest pr |> Choice2Of2
+        | BuildStatus.BuildFailure -> NaughtyPullRequest pr |> Choice2Of2
 
 // TODO: remove unwrapping of AttemptQueue here?
 let pickNextBatch: PickNextBatch =
@@ -317,35 +317,6 @@ let updateStatusesInSinBin: UpdateStatusesInSinBin =
         | None ->
             queue, sinBin
 
-let previewExecutionPlan: PreviewExecutionPlan =
-    fun model ->
-        let rec splitIntoBatches (queue: AttemptQueue): List<PlannedBatch> =
-            match queue with
-            | AttemptQueue [] ->
-                []
-            | _ ->
-                match pickNextBatch queue with
-                | Some(batch, remainder) ->
-                    let batchIds =
-                        batch
-                        |> RunnableBatch.toPullRequests
-                        |> List.map (fun pr -> pr.number)
-                    PlannedBatch batchIds :: (splitIntoBatches remainder)
-                | None ->
-                    // SMELL: impossible code path, all non-empty queues have a next batch...
-                    // SMELL: how could execution get here and result is empty?
-                    []
-
-        let active =
-            model.activeBatch |> ActiveBatch.toPlanned
-
-        let fromQueue =
-            model.queue |> splitIntoBatches
-
-        match active with
-        | Some b -> b :: fromQueue
-        | None -> fromQueue
-
 // "Domain services"
 
 module Command =
@@ -364,13 +335,12 @@ module AggregateSuccess =
     let aggregate (value: AggregateSuccess<'b>): MergeQueue =
         value.aggregate
 
-
 let enqueue: Enqueue =
     fun command ->
         let pullRequest = command.command
         let model = command.aggregate
 
-        let isBuildFailing = (getBuildStatus pullRequest) = BuildFailure
+        let isBuildFailing = (getBuildStatus pullRequest) = BuildStatus.BuildFailure
         // TODO: Concept here, "locate pull request", multiple occurrences
         // TODO: Currently not checking to see if the pull request is currently running!
         let alreadyEnqueued = model.queue |> AttemptQueue.contains pullRequest.number
@@ -442,14 +412,11 @@ let dequeue: Dequeue =
             Error(NotFound)
 
 let startBatch: StartBatch =
-    // feels more like = IdleQueue -> Option<Batch>, no reason to allow running or merging queues to be started
-    // Maybe it shouldn't be a command
     fun command ->
         let model = command.aggregate
         match model.activeBatch, model.queue with
         | Running _, _ -> Error AlreadyRunning
         | Merging _, _ -> Error AlreadyRunning
-        | NoBatch, AttemptQueue [] -> Error EmptyQueue // TODO: Delete this case
         | NoBatch, queue ->
             match pickNextBatch queue with
             | Some(batch, remaining) ->
@@ -461,8 +428,6 @@ let startBatch: StartBatch =
                 let pullRequests = batch |> RunnableBatch.toPullRequests
                 Ok(AggregateSuccess.create (BatchStarted pullRequests) newModel)
             | None ->
-                // SMELL: impossible code path, all non-empty queues have a next batch...
-                // SMELL: how could execution get here and result is empty?
                 Error EmptyQueue
 
 let ingestBuildUpdate: IngestBuildProgress =
@@ -471,7 +436,7 @@ let ingestBuildUpdate: IngestBuildProgress =
         let model = command.aggregate
 
         match model.activeBatch, message with
-        | Running failed, BuildProgress.Failure ->
+        | Running failed, BuildFailure ->
             match bisect failed with
             | None ->
                 let queue, nextActive = failWithoutRetry failed model.queue
@@ -495,20 +460,20 @@ let ingestBuildUpdate: IngestBuildProgress =
                 let prs = failed |> RunnableBatch.toPullRequests
                 Ok(AggregateSuccess.create (BuildFailureWillRetry prs) newModel)
 
-        | Running succeeded, BuildProgress.Success targetHead ->
+        | Running succeeded, BuildSuccess targetHead ->
             let nextActive = completeBuild succeeded
             let newModel = { model with activeBatch = nextActive }
             let pullRequests = succeeded |> RunnableBatch.toPullRequests
 
             Ok(AggregateSuccess.create (SuccessfullyBuilt(pullRequests, targetHead)) newModel)
 
-        | NoBatch, BuildProgress.Failure ->
+        | NoBatch, BuildFailure ->
             Error NotCurrentlyBuilding
-        | Merging _, BuildProgress.Failure ->
+        | Merging _, BuildFailure ->
             Error NotCurrentlyBuilding
-        | NoBatch, BuildProgress.Success _ ->
+        | NoBatch, BuildSuccess _ ->
             Error NotCurrentlyBuilding
-        | Merging _, BuildProgress.Success _ ->
+        | Merging _, BuildSuccess _ ->
             Error NotCurrentlyBuilding
 
 let ingestMergeUpdate: IngestMergeUpdate =
@@ -618,9 +583,38 @@ let updateStatuses: UpdateStatuses =
 
         AggregateSuccess.create UpdateStatusesSuccess.NoChange newModel
 
-// "Properties"
+// "Views"
 
 // Should these return DTOs?
+let previewExecutionPlan: PreviewExecutionPlan =
+    fun model ->
+        let rec splitIntoBatches (queue: AttemptQueue): List<PlannedBatch> =
+            match queue with
+            | AttemptQueue [] ->
+                []
+            | _ ->
+                match pickNextBatch queue with
+                | Some(batch, remainder) ->
+                    let batchIds =
+                        batch
+                        |> RunnableBatch.toPullRequests
+                        |> List.map (fun pr -> pr.number)
+                    PlannedBatch batchIds :: (splitIntoBatches remainder)
+                | None ->
+                    // SMELL: impossible code path, all non-empty queues have a next batch...
+                    // SMELL: how could execution get here and result is empty?
+                    []
+
+        let active =
+            model.activeBatch |> ActiveBatch.toPlanned
+
+        let fromQueue =
+            model.queue |> splitIntoBatches
+
+        match active with
+        | Some b -> b :: fromQueue
+        | None -> fromQueue
+
 let peekCurrentQueue (model: MergeQueue): List<PullRequest> =
     model.queue |> AttemptQueue.toPullRequests
 

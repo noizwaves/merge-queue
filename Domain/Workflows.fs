@@ -243,9 +243,9 @@ module IngestBuild =
             | UnvalidatedBuildMessage.Success(shaValue) ->
                 shaValue
                 |> SHA.create
-                |> Result.map BuildProgress.Success
+                |> Result.map BuildProgress.BuildSuccess
             | UnvalidatedBuildMessage.Failure ->
-                Ok BuildProgress.Failure
+                Ok BuildProgress.BuildFailure
 
     /// Loading
     type private LoadMergeQueue = BuildProgress -> Command<BuildProgress>

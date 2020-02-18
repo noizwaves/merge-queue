@@ -51,8 +51,8 @@ module DomainServiceTypes =
     /// Ingest Build Update
     /// - when a Batch's build finishes
     type BuildProgress =
-        | Success of SHA
-        | Failure
+        | BuildSuccess of SHA
+        | BuildFailure
 
     type IngestBuildSuccess =
         | SuccessfullyBuilt of List<PullRequest> * SHA
