@@ -6,16 +6,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="SimpleSandboxApi.fs" />
+    <Compile Include="GithubWebhook.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\App\App.fsproj" />
     <ProjectReference Include="..\Domain\Domain.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FSharp.Data" Version="3.3.3" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
     <PackageReference Include="Suave" Version="2.5.6" />
   </ItemGroup>
