@@ -4,6 +4,7 @@ open Xunit
 open FsUnit.Xunit
 open MergeQueue.Domain
 open MergeQueue.DomainTypes
+open MergeQueue.GitHubTypes
 open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
 open MergeQueue.Workflows.UpdateStatuses
@@ -33,12 +34,28 @@ let private oneCmd: Enqueue.Command =
       sha = "00001111"
       statuses = [ "circleci", "Success" ] }
 
+let private oneLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00001111"
+                         statuses = [ "circleci", State.Success ] }
+        }
+
 let private two = PullRequest.create (makePullRequestID 2222) (makeSha "00002222") [ passedCircleCI ]
 
 let private twoCmd: Enqueue.Command =
     { number = 2222
       sha = "00002222"
       statuses = [ "circleci", "Success" ] }
+
+let private twoLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00002222"
+                         statuses = [ "circleci", State.Success ] }
+        }
 
 let private three = PullRequest.create (makePullRequestID 3333) (makeSha "00003333") [ passedCircleCI ]
 
@@ -47,12 +64,28 @@ let private threeCmd: Enqueue.Command =
       sha = "00003333"
       statuses = [ "circleci", "Success" ] }
 
+let private threeLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00003333"
+                         statuses = [ "circleci", State.Success ] }
+        }
+
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
 let private fourCmd: Enqueue.Command =
     { number = 4444
       sha = "00004444"
       statuses = [ "circleci", "Success" ] }
+
+let private fourLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00004444"
+                         statuses = [ "circleci", State.Success ] }
+        }
 
 let private five = PullRequest.create (makePullRequestID 5555) (makeSha "00005555") [ pendingCircleCI ]
 
@@ -61,12 +94,28 @@ let private fiveCmd: Enqueue.Command =
       sha = "00005555"
       statuses = [ "circleci", "Pending" ] }
 
+let private fiveLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00005555"
+                         statuses = [ "circleci", State.Pending ] }
+        }
+
 let private six = PullRequest.create (makePullRequestID 6666) (makeSha "00006666") [ passedCircleCI ]
 
 let private sixCmd: Enqueue.Command =
     { number = 6666
       sha = "00006666"
       statuses = [ "circleci", "Success" ] }
+
+let private sixLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00006666"
+                         statuses = [ "circleci", State.Success ] }
+        }
 
 let private seven = PullRequest.create (makePullRequestID 7777) (makeSha "00007777") [ passedCircleCI ]
 
@@ -75,12 +124,28 @@ let private sevenCmd: Enqueue.Command =
       sha = "00007777"
       statuses = [ "circleci", "Success" ] }
 
+let private sevenLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00007777"
+                         statuses = [ "circleci", State.Success ] }
+        }
+
 let private eight = PullRequest.create (makePullRequestID 8888) (makeSha "00008888") [ passedCircleCI ]
 
 let private eightCmd: Enqueue.Command =
     { number = 8888
       sha = "00008888"
       statuses = [ "circleci", "Success" ] }
+
+let private eightLookup: LookUpPullRequestDetails =
+    fun _ ->
+        async {
+            return Ok
+                       { sha = "00008888"
+                         statuses = [ "circleci", State.Success ] }
+        }
 
 
 [<Fact>]
@@ -99,10 +164,10 @@ let ``Realistic workflow``() =
     let dequeue' = dequeue fetch update
 
     // 1. Four enqueued but not started
-    enqueue' oneCmd |> ignore
-    enqueue' twoCmd |> ignore
-    enqueue' threeCmd |> ignore
-    enqueue' fourCmd |> ignore
+    enqueue' oneLookup oneCmd |> ignore
+    enqueue' twoLookup twoCmd |> ignore
+    enqueue' threeLookup threeCmd |> ignore
+    enqueue' fourLookup fourCmd |> ignore
     let ``Four enqueued but not started`` = fetch()
 
     ``Four enqueued but not started``
@@ -123,8 +188,8 @@ let ``Realistic workflow``() =
 
     // 2. First batch running some additional enqueued
     startBatch'() |> ignore
-    enqueue' fiveCmd |> ignore
-    enqueue' sixCmd |> ignore
+    enqueue' fiveLookup fiveCmd |> ignore
+    enqueue' sixLookup sixCmd |> ignore
     let ``First batch running some additional enqueued`` = fetch()
 
     ``First batch running some additional enqueued``
@@ -155,7 +220,7 @@ let ``Realistic workflow``() =
         { number = 6666
           sha = "60606060" }
     |> ignore
-    enqueue' sevenCmd |> ignore
+    enqueue' sevenLookup sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch()
 
     let six_v2 = PullRequest.create (makePullRequestID 6666) (makeSha "60606060") [ passedCircleCI ]
@@ -216,7 +281,7 @@ let ``Realistic workflow``() =
 
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     startBatch'() |> ignore
-    enqueue' eightCmd |> ignore
+    enqueue' eightLookup eightCmd |> ignore
     updateStatuses'
         { number = 5555
           sha = "50505050"

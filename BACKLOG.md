@@ -17,6 +17,10 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
+**Spike**
+-   Remove deprecated fields on Workflows.Enqueue.Command
+-   Provide a real implementation for GitHubTypes.LookUpPullRequestDetails
+
 Backlog
 1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
 1.  solidify ubiquitous language around running (building || merging) batches

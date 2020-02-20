@@ -8,6 +8,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.DomainServiceTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
+open MergeQueue.GitHubTypes
 open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
 open MergeQueue.Workflows.Dequeue
@@ -64,7 +65,15 @@ let view (load: Load) _request: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let enqueue (load: Load) (save: Save) id: WebPart =
-    let enqueue' = enqueue load save
+    let lookupStub: LookUpPullRequestDetails =
+        fun _ ->
+            async {
+                return Ok
+                           { sha = "00001234"
+                             statuses = [ "circleci", State.Pending ] }
+            }
+
+    let enqueue' = enqueue load save lookupStub
 
     // TODO: Turn the imperative expressions into a >=> pipe
     let cmd =
@@ -78,6 +87,8 @@ let enqueue (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Enqueued) -> "Enqueued"
         | Ok(Success.SinBinned) -> "Sin binned"
+        | Error(Enqueue.Error.RemoteServiceError help) ->
+            sprintf "Remote service error: %s" help
         | Error(Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
         | Error(Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"
@@ -89,7 +100,15 @@ let enqueue (load: Load) (save: Save) id: WebPart =
     >=> Writers.setHeader "Content-Type" "application/json"
 
 let fireAndForget (load: Load) (save: Save) id: WebPart =
-    let enqueue' = Enqueue.enqueue load save
+    let lookupStub: LookUpPullRequestDetails =
+        fun _ ->
+            async {
+                return Ok
+                           { sha = "00001234"
+                             statuses = [ "circleci", State.Pending ] }
+            }
+
+    let enqueue' = Enqueue.enqueue load save lookupStub
 
     let cmd =
         { number = id
@@ -102,6 +121,8 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
         match result with
         | Ok(Success.Enqueued) -> "Enqueued"
         | Ok(Success.SinBinned) -> "Sin binned"
+        | Error(Enqueue.Error.RemoteServiceError help) ->
+            sprintf "Remote service error: %s" help
         | Error(Enqueue.Error.EnqueueError EnqueueError.RejectedFailingBuildStatus) ->
             "Rejected (failing build status)"
         | Error(Enqueue.Error.EnqueueError EnqueueError.AlreadyEnqueued) -> "Already enqueued"

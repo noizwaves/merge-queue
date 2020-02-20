@@ -28,7 +28,7 @@ let private deserializeDtoFromRequest: DeserializeDtoFromRequest =
     let toDto (parsed: IssueCommentJsonBodyProvider.Root) =
         { Number = parsed.Issue.Number
           Comment = parsed.Comment.Body }
-    
+
     fun request ->
         try
             request.rawForm
@@ -36,13 +36,11 @@ let private deserializeDtoFromRequest: DeserializeDtoFromRequest =
             |> IssueCommentJsonBodyProvider.Parse
             |> toDto
             |> Ok
-            
-        with
-        | error ->
+
+        with error ->
             Error "Deserialization error"
 
-type private IntendedCommand =
-    | EnqueueCommand of IssueCommentJsonBody
+type private IntendedCommand = EnqueueCommand of IssueCommentJsonBody
 
 type private DetermineIntendedCommand = IssueCommentJsonBody -> Result<IntendedCommand, string>
 
@@ -56,20 +54,20 @@ let private determineIntendedCommand: DetermineIntendedCommand =
 
 type private ProcessIntendedCommand = Result<IntendedCommand, string> -> WebPart
 
-let private processEnqueue load save (issueComment: IssueCommentJsonBody): WebPart =
+let private processEnqueue load save lookup (issueComment: IssueCommentJsonBody): WebPart =
     // TODO: We need to get the SHA and Statuses from the GitHub API
     let comment: Workflows.Enqueue.Command =
         { number = issueComment.Number
           sha = "???"
-          statuses = ["???", "???"] }
-    
+          statuses = [ "???", "???" ] }
+
     let asSuccess (success: DomainServiceTypes.EnqueueSuccess) =
         match success with
         | DomainServiceTypes.EnqueueSuccess.Enqueued ->
             "Enqueued" |> Successful.OK
         | DomainServiceTypes.EnqueueSuccess.SinBinned ->
             "Sin Binned" |> Successful.OK
-    
+
     let asError (error: Workflows.Enqueue.Error) =
         match error with
         | Workflows.Enqueue.Error.EnqueueError DomainServiceTypes.EnqueueError.AlreadyEnqueued ->
@@ -77,28 +75,31 @@ let private processEnqueue load save (issueComment: IssueCommentJsonBody): WebPa
         | Workflows.Enqueue.Error.EnqueueError DomainServiceTypes.EnqueueError.RejectedFailingBuildStatus ->
             "Rejected: PR has a failing build status" |> Successful.OK // TODO: More appropriate code
         | Workflows.Enqueue.Error.ValidationError message ->
-            message |> Successful.OK
-    
+            message |> Successful.OK // TODO: More appropriate code
+        | Workflows.Enqueue.Error.RemoteServiceError message ->
+            message |> Successful.OK // TODO: More appropriate code
+
     comment
-    |> Workflows.Enqueue.enqueue load save
+    |> Workflows.Enqueue.enqueue load save lookup
     |> Result.fold asSuccess asError
 
-let private processIntendedCommand load save: ProcessIntendedCommand =
+let private processIntendedCommand load save lookup: ProcessIntendedCommand =
     fun command ->
         match command with
-        | Ok (EnqueueCommand issueComment) ->
-            issueComment |> processEnqueue load save
+        | Ok(EnqueueCommand issueComment) ->
+            issueComment |> processEnqueue load save lookup
         | Error message ->
             message |> Successful.OK
 
 type private IssueCommentHandler = HttpRequest -> WebPart
 
-let private issueCommentHandler (load: MergeQueue.DbTypes.Load) (save: MergeQueue.DbTypes.Save): IssueCommentHandler =
+let private issueCommentHandler (load: MergeQueue.DbTypes.Load) (save: MergeQueue.DbTypes.Save)
+    (lookup: MergeQueue.GitHubTypes.LookUpPullRequestDetails): IssueCommentHandler =
     fun request ->
         request
         |> deserializeDtoFromRequest
         |> Result.bind determineIntendedCommand
-        |> processIntendedCommand load save
+        |> processIntendedCommand load save lookup
 
 let private gitHubEvent (eventType: string) =
     let inner (ctx: HttpContext) =
@@ -115,5 +116,5 @@ let private gitHubEvent (eventType: string) =
         }
     inner
 
-let handle fetch store =
-    choose [ gitHubEvent "issue_comment" >=> request (issueCommentHandler fetch store) ]
+let handle fetch store lookup =
+    choose [ gitHubEvent "issue_comment" >=> request (issueCommentHandler fetch store lookup) ]

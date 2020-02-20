@@ -4,6 +4,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.DomainServiceTypes
 open MergeQueue.Domain
 open MergeQueue.DbTypes
+open MergeQueue.GitHubTypes
 
 module Common =
     // Input is a func: a' -> Result<b', e'>
@@ -55,13 +56,16 @@ module Enqueue =
     // Types
     type Command =
         { number: int
+          // TODO: sha is deprecated
           sha: string
+          // TODO: statuses is deprecated
           statuses: List<string * string> }
 
     // TODO: convert to some kind of command DTO instead of using the domain type?
     type Success = EnqueueSuccess
 
     type Error =
+        | RemoteServiceError of string
         | ValidationError of string
         | EnqueueError of EnqueueError
 
@@ -69,8 +73,39 @@ module Enqueue =
 
     type EnqueueWorkflow = Command -> EnqueueResult
 
+    // Fetch additional information
+    type private ExpandedCommand =
+        { number: int
+          sha: string
+          statuses: List<string * string> }
+
+    type private FetchAdditionalInfo = Command -> Result<ExpandedCommand, string>
+
+    let private fetchAdditionalInfo (lookup: LookUpPullRequestDetails): FetchAdditionalInfo =
+        let toStateString (state: State) =
+            match state with
+            | State.Pending -> "Pending"
+            | State.Success -> "Success"
+            | State.Failure -> "Failure"
+            | State.Expected -> failwith "'Expected' is an unhandled state in the current domain"
+            | State.Error_ -> failwith "'Error' is an unhandled state in the current domain"
+
+        let toAdditionalInfo number (details: PullRequestDetails): ExpandedCommand =
+            let statuses =
+                details.statuses
+                |> List.map (fun (context, state) -> context, state |> toStateString)
+            { number = number
+              sha = details.sha
+              statuses = statuses }
+
+        fun command ->
+            command.number
+            |> lookup
+            |> Async.RunSynchronously
+            |> Result.map (toAdditionalInfo command.number)
+
     /// Validation
-    type private ValidatePullRequest = Command -> Result<PullRequest, string>
+    type private ValidatePullRequest = ExpandedCommand -> Result<PullRequest, string>
 
     let private validatePullRequest: ValidatePullRequest =
         // TODO: tidy this up with computation expressions and composition
@@ -105,7 +140,8 @@ module Enqueue =
     type private SaveMergeQueue = AggregateSuccess<EnqueueSuccess> -> unit
 
     // the final workflow
-    let enqueue (load: Load) (save: Save): EnqueueWorkflow =
+    let enqueue (load: Load) (save: Save) (lookupPr: LookUpPullRequestDetails): EnqueueWorkflow =
+        let fetchAdditionalInfo = fetchAdditionalInfo lookupPr >> Result.mapError RemoteServiceError
         let validatePullRequest = validatePullRequest >> (Result.mapError Error.ValidationError)
         let loadMergeQueue = loadMergeQueue load
         let enqueueStep = enqueueStep >> (Result.mapError Error.EnqueueError)
@@ -113,7 +149,8 @@ module Enqueue =
 
         fun command ->
             command
-            |> validatePullRequest
+            |> fetchAdditionalInfo
+            |> Result.bind validatePullRequest
             |> Result.map loadMergeQueue
             |> Common.bind enqueueStep
             |> Common.tee (Result.map saveMergeQueue)
