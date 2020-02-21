@@ -28,6 +28,13 @@ let run (port: int) =
                              statuses = [ "circleci", State.Pending ] }
             }
 
+    // REAL: GitHub
+    // let githubApiToken = Environment.GetEnvironmentVariable "GITHUB_API_TOKEN"
+    // let githubUsername = Environment.GetEnvironmentVariable "GITHUB_USERNAME"
+    // let lookupPullRequestDetails: LookUpPullRequestDetails =
+    //     GitHubService.lookUpPullRequestDetails githubApiToken githubUsername
+
+    // Build the app
     let app: WebPart =
         choose
             [ GET >=> path "/api/" >=> request (SimpleSandboxApi.view load)

@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="GithubWebhook.fs" />
+    <Compile Include="GitHubService.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

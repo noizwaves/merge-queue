@@ -18,7 +18,7 @@ Done
 1.  dequeue a PR
 
 **Spike**
--   Provide a real implementation for GitHubTypes.LookUpPullRequestDetails
+-   accept arguments of owner and name for repo to make the call to github
 
 Backlog
 1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
