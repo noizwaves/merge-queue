@@ -18,7 +18,6 @@ Done
 1.  dequeue a PR
 
 **Spike**
--   Remove deprecated fields on Workflows.Enqueue.Command
 -   Provide a real implementation for GitHubTypes.LookUpPullRequestDetails
 
 Backlog

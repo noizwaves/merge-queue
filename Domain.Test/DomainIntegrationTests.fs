@@ -30,9 +30,7 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 let private one = PullRequest.create (makePullRequestID 1111) (makeSha "00001111") [ passedCircleCI ]
 
 let private oneCmd: Enqueue.Command =
-    { number = 1111
-      sha = "00001111"
-      statuses = [ "circleci", "Success" ] }
+    { number = 1111 }
 
 let private oneLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -45,9 +43,7 @@ let private oneLookup: LookUpPullRequestDetails =
 let private two = PullRequest.create (makePullRequestID 2222) (makeSha "00002222") [ passedCircleCI ]
 
 let private twoCmd: Enqueue.Command =
-    { number = 2222
-      sha = "00002222"
-      statuses = [ "circleci", "Success" ] }
+    { number = 2222 }
 
 let private twoLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -60,9 +56,7 @@ let private twoLookup: LookUpPullRequestDetails =
 let private three = PullRequest.create (makePullRequestID 3333) (makeSha "00003333") [ passedCircleCI ]
 
 let private threeCmd: Enqueue.Command =
-    { number = 3333
-      sha = "00003333"
-      statuses = [ "circleci", "Success" ] }
+    { number = 3333 }
 
 let private threeLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -75,9 +69,7 @@ let private threeLookup: LookUpPullRequestDetails =
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
 let private fourCmd: Enqueue.Command =
-    { number = 4444
-      sha = "00004444"
-      statuses = [ "circleci", "Success" ] }
+    { number = 4444 }
 
 let private fourLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -90,9 +82,7 @@ let private fourLookup: LookUpPullRequestDetails =
 let private five = PullRequest.create (makePullRequestID 5555) (makeSha "00005555") [ pendingCircleCI ]
 
 let private fiveCmd: Enqueue.Command =
-    { number = 5555
-      sha = "00005555"
-      statuses = [ "circleci", "Pending" ] }
+    { number = 5555 }
 
 let private fiveLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -105,9 +95,7 @@ let private fiveLookup: LookUpPullRequestDetails =
 let private six = PullRequest.create (makePullRequestID 6666) (makeSha "00006666") [ passedCircleCI ]
 
 let private sixCmd: Enqueue.Command =
-    { number = 6666
-      sha = "00006666"
-      statuses = [ "circleci", "Success" ] }
+    { number = 6666 }
 
 let private sixLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -120,9 +108,7 @@ let private sixLookup: LookUpPullRequestDetails =
 let private seven = PullRequest.create (makePullRequestID 7777) (makeSha "00007777") [ passedCircleCI ]
 
 let private sevenCmd: Enqueue.Command =
-    { number = 7777
-      sha = "00007777"
-      statuses = [ "circleci", "Success" ] }
+    { number = 7777 }
 
 let private sevenLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -135,9 +121,7 @@ let private sevenLookup: LookUpPullRequestDetails =
 let private eight = PullRequest.create (makePullRequestID 8888) (makeSha "00008888") [ passedCircleCI ]
 
 let private eightCmd: Enqueue.Command =
-    { number = 8888
-      sha = "00008888"
-      statuses = [ "circleci", "Success" ] }
+    { number = 8888 }
 
 let private eightLookup: LookUpPullRequestDetails =
     fun _ ->

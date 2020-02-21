@@ -55,11 +55,7 @@ module Common =
 module Enqueue =
     // Types
     type Command =
-        { number: int
-          // TODO: sha is deprecated
-          sha: string
-          // TODO: statuses is deprecated
-          statuses: List<string * string> }
+        { number: int }
 
     // TODO: convert to some kind of command DTO instead of using the domain type?
     type Success = EnqueueSuccess

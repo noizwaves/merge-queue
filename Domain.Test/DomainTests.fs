@@ -34,9 +34,7 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 let private one = PullRequest.create (makePullRequestID 1) (makeSha "00001111") [ passedCircleCI ]
 
 let private oneCmd: Enqueue.Command =
-    { number = 1
-      sha = "00001111"
-      statuses = [ "circleci", "Success" ] }
+    { number = 1 }
 
 let private oneLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -49,9 +47,7 @@ let private oneLookup: LookUpPullRequestDetails =
 let private two = PullRequest.create (makePullRequestID 22) (makeSha "00002222") [ passedCircleCI ]
 
 let private twoCmd: Enqueue.Command =
-    { number = 22
-      sha = "00002222"
-      statuses = [ "circleci", "Success" ] }
+    { number = 22 }
 
 let private twoLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -64,9 +60,7 @@ let private twoLookup: LookUpPullRequestDetails =
 let private three = PullRequest.create (makePullRequestID 333) (makeSha "00003333") [ passedCircleCI ]
 
 let private threeCmd: Enqueue.Command =
-    { number = 333
-      sha = "00003333"
-      statuses = [ "circleci", "Success" ] }
+    { number = 333 }
 
 let private threeLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -79,9 +73,7 @@ let private threeLookup: LookUpPullRequestDetails =
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
 let private fourCmd: Enqueue.Command =
-    { number = 4444
-      sha = "00004444"
-      statuses = [ "circleci", "Success" ] }
+    { number = 4444 }
 
 let private fourLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -160,11 +152,7 @@ let ``Enqueue a Pull Request``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request with a failing commit status is rejected``() =
-    let failingCmd =
-        { oneCmd with
-              statuses =
-                  [ "uberlinter", "Success"
-                    "circleci", "Failure" ] }
+    let failingCmd = oneCmd
 
     let lookup: LookUpPullRequestDetails =
         fun _ ->
@@ -186,11 +174,7 @@ let ``Enqueue a Pull Request with a failing commit status is rejected``() =
 
 [<Fact>]
 let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
-    let runningCmd =
-        { oneCmd with
-              statuses =
-                  [ "uberlinter", "Success"
-                    "circleci", "Pending" ] }
+    let runningCmd = oneCmd
 
     let lookup: LookUpPullRequestDetails =
         fun _ ->
@@ -221,7 +205,7 @@ let ``Enqueue a Pull Request with a pending commit status is sin binned``() =
 
 [<Fact>]
 let ``Enqueuing a Pull Request that has no commit statuses is rejected``() =
-    let noStatusesCmd = { oneCmd with statuses = [] }
+    let noStatusesCmd = oneCmd
 
     let lookup: LookUpPullRequestDetails =
         fun _ ->
@@ -247,7 +231,7 @@ let ``Enqueue an already enqueued Pull Request``() =
         |> applyCommands (fun load save -> enqueue load save oneLookup oneCmd)
         |> snd
 
-    let duplicateCmd = { oneCmd with sha = "92929292" }
+    let duplicateCmd = oneCmd
     let (result, state) =
         singlePrQueueState |> applyCommands (fun load save -> enqueue load save oneLookup duplicateCmd)
 
@@ -286,10 +270,7 @@ let ``Enqueue a sin binned Pull Request``() =
     let result, state =
         singlePrInSinBin
         |> applyCommands (fun load save ->
-            enqueue load save lookup
-                { number = 1
-                  sha = "92929292"
-                  statuses = [ "circleci", "Success" ] })
+            enqueue load save lookup { number = 1 })
 
     let expected: EnqueueResult =
         Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)

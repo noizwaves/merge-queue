@@ -55,11 +55,7 @@ let private determineIntendedCommand: DetermineIntendedCommand =
 type private ProcessIntendedCommand = Result<IntendedCommand, string> -> WebPart
 
 let private processEnqueue load save lookup (issueComment: IssueCommentJsonBody): WebPart =
-    // TODO: We need to get the SHA and Statuses from the GitHub API
-    let comment: Workflows.Enqueue.Command =
-        { number = issueComment.Number
-          sha = "???"
-          statuses = [ "???", "???" ] }
+    let comment: Workflows.Enqueue.Command = { number = issueComment.Number }
 
     let asSuccess (success: DomainServiceTypes.EnqueueSuccess) =
         match success with

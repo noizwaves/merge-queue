@@ -76,10 +76,7 @@ let enqueue (load: Load) (save: Save) id: WebPart =
     let enqueue' = enqueue load save lookupStub
 
     // TODO: Turn the imperative expressions into a >=> pipe
-    let cmd =
-        { number = id
-          sha = "00001234"
-          statuses = [ "circleci", "Success" ] }
+    let cmd: Enqueue.Command = { number = id }
 
     let result = enqueue' cmd
 
@@ -110,10 +107,7 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
     let enqueue' = Enqueue.enqueue load save lookupStub
 
-    let cmd =
-        { number = id
-          sha = "00001234"
-          statuses = [ "circleci", "Pending" ] }
+    let cmd: Enqueue.Command = { number = id }
 
     let result = enqueue' cmd
 
