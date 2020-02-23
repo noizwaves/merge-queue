@@ -38,8 +38,8 @@ let run (port: int) =
     let app: WebPart =
         choose
             [ GET >=> path "/api/" >=> request (SimpleSandboxApi.view load)
-              GET >=> pathScan "/api/enqueue/%i" (SimpleSandboxApi.enqueue load save)
-              GET >=> pathScan "/api/fireandforget/%i" (SimpleSandboxApi.fireAndForget load save)
+              GET >=> pathScan "/api/enqueue/%i" (SimpleSandboxApi.enqueue load save lookupPullRequestDetails)
+              GET >=> pathScan "/api/fireandforget/%i" (SimpleSandboxApi.fireAndForget load save lookupPullRequestDetails)
               GET >=> pathScan "/api/dequeue/%i" (SimpleSandboxApi.dequeue load save)
               GET >=> path "/api/start" >=> request (SimpleSandboxApi.start load save)
               GET >=> path "/api/finish" >=> request (SimpleSandboxApi.finish load save)

@@ -64,16 +64,8 @@ let view (load: Load) _request: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let enqueue (load: Load) (save: Save) id: WebPart =
-    let lookupStub: LookUpPullRequestDetails =
-        fun _ ->
-            async {
-                return Ok
-                           { sha = "00001234"
-                             statuses = [ "circleci", State.Pending ] }
-            }
-
-    let enqueue' = enqueue load save lookupStub
+let enqueue (load: Load) (save: Save) (lookup: LookUpPullRequestDetails) id: WebPart =
+    let enqueue' = enqueue load save lookup
 
     // TODO: Turn the imperative expressions into a >=> pipe
     let cmd: Enqueue.Command =
@@ -99,16 +91,8 @@ let enqueue (load: Load) (save: Save) id: WebPart =
     |> Successful.OK
     >=> Writers.setHeader "Content-Type" "application/json"
 
-let fireAndForget (load: Load) (save: Save) id: WebPart =
-    let lookupStub: LookUpPullRequestDetails =
-        fun _ ->
-            async {
-                return Ok
-                           { sha = "00001234"
-                             statuses = [ "circleci", State.Pending ] }
-            }
-
-    let enqueue' = Enqueue.enqueue load save lookupStub
+let fireAndForget (load: Load) (save: Save) (lookup: LookUpPullRequestDetails) id: WebPart =
+    let enqueue' = Enqueue.enqueue load save lookup
 
     let cmd: Enqueue.Command =
         { number = id
