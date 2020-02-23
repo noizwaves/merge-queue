@@ -30,7 +30,9 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 let private one = PullRequest.create (makePullRequestID 1111) (makeSha "00001111") [ passedCircleCI ]
 
 let private oneCmd: Enqueue.Command =
-    { number = 1111 }
+    { number = 1111
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private oneLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -43,7 +45,9 @@ let private oneLookup: LookUpPullRequestDetails =
 let private two = PullRequest.create (makePullRequestID 2222) (makeSha "00002222") [ passedCircleCI ]
 
 let private twoCmd: Enqueue.Command =
-    { number = 2222 }
+    { number = 2222
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private twoLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -56,7 +60,9 @@ let private twoLookup: LookUpPullRequestDetails =
 let private three = PullRequest.create (makePullRequestID 3333) (makeSha "00003333") [ passedCircleCI ]
 
 let private threeCmd: Enqueue.Command =
-    { number = 3333 }
+    { number = 3333
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private threeLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -69,7 +75,9 @@ let private threeLookup: LookUpPullRequestDetails =
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
 let private fourCmd: Enqueue.Command =
-    { number = 4444 }
+    { number = 4444
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private fourLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -82,7 +90,9 @@ let private fourLookup: LookUpPullRequestDetails =
 let private five = PullRequest.create (makePullRequestID 5555) (makeSha "00005555") [ pendingCircleCI ]
 
 let private fiveCmd: Enqueue.Command =
-    { number = 5555 }
+    { number = 5555
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private fiveLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -95,7 +105,9 @@ let private fiveLookup: LookUpPullRequestDetails =
 let private six = PullRequest.create (makePullRequestID 6666) (makeSha "00006666") [ passedCircleCI ]
 
 let private sixCmd: Enqueue.Command =
-    { number = 6666 }
+    { number = 6666
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private sixLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -108,7 +120,9 @@ let private sixLookup: LookUpPullRequestDetails =
 let private seven = PullRequest.create (makePullRequestID 7777) (makeSha "00007777") [ passedCircleCI ]
 
 let private sevenCmd: Enqueue.Command =
-    { number = 7777 }
+    { number = 7777
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private sevenLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -121,7 +135,9 @@ let private sevenLookup: LookUpPullRequestDetails =
 let private eight = PullRequest.create (makePullRequestID 8888) (makeSha "00008888") [ passedCircleCI ]
 
 let private eightCmd: Enqueue.Command =
-    { number = 8888 }
+    { number = 8888
+      repoOwner = "some-owner"
+      repoName = "some-name" }
 
 let private eightLookup: LookUpPullRequestDetails =
     fun _ ->

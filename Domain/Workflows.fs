@@ -55,7 +55,9 @@ module Common =
 module Enqueue =
     // Types
     type Command =
-        { number: int }
+        { repoOwner: string
+          repoName: string
+          number: int }
 
     // TODO: convert to some kind of command DTO instead of using the domain type?
     type Success = EnqueueSuccess
@@ -78,6 +80,11 @@ module Enqueue =
     type private FetchAdditionalInfo = Command -> Result<ExpandedCommand, string>
 
     let private fetchAdditionalInfo (lookup: LookUpPullRequestDetails): FetchAdditionalInfo =
+        let toIdentifier (command: Command): PullRequestIdentifier =
+            { repoOwner = command.repoOwner
+              repoName = command.repoName
+              number = command.number }
+
         let toStateString (state: State) =
             match state with
             | State.Pending -> "Pending"
@@ -88,14 +95,14 @@ module Enqueue =
 
         let toAdditionalInfo number (details: PullRequestDetails): ExpandedCommand =
             let statuses =
-                details.statuses
-                |> List.map (fun (context, state) -> context, state |> toStateString)
+                details.statuses |> List.map (fun (context, state) -> context, state |> toStateString)
             { number = number
               sha = details.sha
               statuses = statuses }
 
         fun command ->
-            command.number
+            command
+            |> toIdentifier
             |> lookup
             |> Async.RunSynchronously
             |> Result.map (toAdditionalInfo command.number)

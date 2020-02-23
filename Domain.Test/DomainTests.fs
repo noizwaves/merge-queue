@@ -34,7 +34,9 @@ let private failedCircleCI = makeCommitStatus ("circleci", "Failure")
 let private one = PullRequest.create (makePullRequestID 1) (makeSha "00001111") [ passedCircleCI ]
 
 let private oneCmd: Enqueue.Command =
-    { number = 1 }
+    { number = 1
+      repoOwner = "some-owner"
+      repoName = "some-repo" }
 
 let private oneLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -47,7 +49,9 @@ let private oneLookup: LookUpPullRequestDetails =
 let private two = PullRequest.create (makePullRequestID 22) (makeSha "00002222") [ passedCircleCI ]
 
 let private twoCmd: Enqueue.Command =
-    { number = 22 }
+    { number = 22
+      repoOwner = "some-owner"
+      repoName = "some-repo" }
 
 let private twoLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -60,7 +64,9 @@ let private twoLookup: LookUpPullRequestDetails =
 let private three = PullRequest.create (makePullRequestID 333) (makeSha "00003333") [ passedCircleCI ]
 
 let private threeCmd: Enqueue.Command =
-    { number = 333 }
+    { number = 333
+      repoOwner = "some-owner"
+      repoName = "some-repo" }
 
 let private threeLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -73,7 +79,9 @@ let private threeLookup: LookUpPullRequestDetails =
 let private four = PullRequest.create (makePullRequestID 4444) (makeSha "00004444") [ passedCircleCI ]
 
 let private fourCmd: Enqueue.Command =
-    { number = 4444 }
+    { number = 4444
+      repoOwner = "some-owner"
+      repoName = "some-repo" }
 
 let private fourLookup: LookUpPullRequestDetails =
     fun _ ->
@@ -270,7 +278,10 @@ let ``Enqueue a sin binned Pull Request``() =
     let result, state =
         singlePrInSinBin
         |> applyCommands (fun load save ->
-            enqueue load save lookup { number = 1 })
+            enqueue load save lookup
+                { number = 1
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: EnqueueResult =
         Error(Error.EnqueueError EnqueueError.AlreadyEnqueued)

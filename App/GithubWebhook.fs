@@ -13,12 +13,20 @@ type private IssueCommentJsonBodyProvider = JsonProvider<"""{
   },
   "comment": {
     "body": "enqueue"
+  },
+  "repository": {
+    "name": "some-name",
+    "owner": {
+      "login": "some-owner"
+    }
   }
 }""">
 
 type private IssueCommentJsonBody =
     { Number: int
-      Comment: string }
+      Comment: string
+      RepoName: string
+      RepoOwner: string }
 
 type private DeserializeDtoFromRequest = HttpRequest -> Result<IssueCommentJsonBody, string>
 
@@ -27,7 +35,9 @@ let private deserializeDtoFromRequest: DeserializeDtoFromRequest =
     // as invalid json will raise exception at runtime. Dumb?
     let toDto (parsed: IssueCommentJsonBodyProvider.Root) =
         { Number = parsed.Issue.Number
-          Comment = parsed.Comment.Body }
+          Comment = parsed.Comment.Body
+          RepoName = parsed.Repository.Name
+          RepoOwner = parsed.Repository.Owner.Login }
 
     fun request ->
         try
@@ -55,7 +65,10 @@ let private determineIntendedCommand: DetermineIntendedCommand =
 type private ProcessIntendedCommand = Result<IntendedCommand, string> -> WebPart
 
 let private processEnqueue load save lookup (issueComment: IssueCommentJsonBody): WebPart =
-    let comment: Workflows.Enqueue.Command = { number = issueComment.Number }
+    let comment: Workflows.Enqueue.Command =
+        { number = issueComment.Number
+          repoOwner = issueComment.RepoOwner
+          repoName = issueComment.RepoName }
 
     let asSuccess (success: DomainServiceTypes.EnqueueSuccess) =
         match success with

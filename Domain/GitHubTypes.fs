@@ -7,9 +7,14 @@ module GitHubTypes =
         | Failure
         | Pending
         | Success
-    
+
     type PullRequestDetails =
         { sha: string
           statuses: List<string * State> }
-    
-    type LookUpPullRequestDetails = int -> Async<Result<PullRequestDetails, string>>
+
+    type PullRequestIdentifier =
+        { repoOwner: string
+          repoName: string
+          number: int }
+
+    type LookUpPullRequestDetails = PullRequestIdentifier -> Async<Result<PullRequestDetails, string>>

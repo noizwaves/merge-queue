@@ -34,14 +34,14 @@ type private PullRequestDetailsDtoProvider = JsonProvider<"""{
 }""">
 
 let lookUpPullRequestDetails (apiToken: string) (username: string): LookUpPullRequestDetails =
-    fun number ->
+    fun id ->
         let bearerToken = sprintf "Bearer %s" apiToken
         // TODO: use real owner and name here
         // TODO: better representation of query as a multiline string
         let body =
             sprintf
-                """{"query":"query { \n  repository(owner: \"noizwaves\", name: \"blog\") {\n    pullRequest(number: %i) {\n      headRef {\n        target {\n          ... on Commit {\n            history(first: 1) {\n              edges {\n                node {\n                  oid\n                  status {\n                    contexts {\n                      context\n                      state\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}","variables":{}}"""
-                number
+                """{"query":"query { \n  repository(owner: \"%s\", name: \"%s\") {\n    pullRequest(number: %i) {\n      headRef {\n        target {\n          ... on Commit {\n            history(first: 1) {\n              edges {\n                node {\n                  oid\n                  status {\n                    contexts {\n                      context\n                      state\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}","variables":{}}"""
+                id.repoOwner id.repoName id.number
 
         let toSuccessfulBodyString (response: HttpResponse): Result<string, string> =
             match response.Body, response.StatusCode with
@@ -53,6 +53,7 @@ let lookUpPullRequestDetails (apiToken: string) (username: string): LookUpPullRe
                 Error(sprintf "Received unexpected status code of %i from GitHub GraphQL API" code)
 
         let toPullRequestDetails (body: string): Result<PullRequestDetails, string> =
+            // TODO: Handle how this can fail
             let result = PullRequestDetailsDtoProvider.Parse body
 
             let toState stateStr =

@@ -21,7 +21,7 @@ let run (port: int) =
 
     // STUB: GitHub API
     let lookupPullRequestDetails: LookUpPullRequestDetails =
-        fun number ->
+        fun identifier ->
             async {
                 return Ok
                            { sha = "1234"
