@@ -162,7 +162,9 @@ module Enqueue =
 module Dequeue =
     // Types
     type Command =
-        { number: int }
+        { repoOwner: string
+          repoName: string
+          number: int }
 
     type Success = DequeueSuccess
 

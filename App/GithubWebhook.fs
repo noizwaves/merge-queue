@@ -47,7 +47,9 @@ let private deserializeDtoFromRequest: DeserializeDtoFromRequest =
         with error ->
             Error "Deserialization error"
 
-type private IntendedCommand = EnqueueCommand of IssueCommentJsonBody
+type private IntendedCommand =
+    | EnqueueCommand of IssueCommentJsonBody
+    | DequeueCommand of IssueCommentJsonBody
 
 type private DetermineIntendedCommand = IssueCommentJsonBody -> Result<IntendedCommand, string>
 
@@ -56,6 +58,8 @@ let private determineIntendedCommand: DetermineIntendedCommand =
         match issueComment.Comment with
         | "enqueue" ->
             EnqueueCommand(issueComment) |> Ok
+        | "dequeue" ->
+            DequeueCommand(issueComment) |> Ok
         | _ ->
             "no matching command" |> Error
 
@@ -89,11 +93,39 @@ let private processEnqueue load save lookup (issueComment: IssueCommentJsonBody)
     |> Workflows.Enqueue.enqueue load save lookup
     |> Result.fold asSuccess asError
 
+let private processDequeue load save lookup (issueComment: IssueCommentJsonBody): WebPart =
+    let comment: Workflows.Dequeue.Command =
+        { number = issueComment.Number
+          repoOwner = issueComment.RepoOwner
+          repoName = issueComment.RepoName }
+
+    let asSuccess (success: DomainServiceTypes.DequeueSuccess) =
+        match success with
+        | DomainServiceTypes.DequeueSuccess.Dequeued ->
+            "Dequeued" |> Successful.OK
+        | DomainServiceTypes.DequeueSuccess.DequeuedAndAbortRunningBatch _ ->
+            "Dequeued and aborted a running batch" |> Successful.OK
+
+    let asError (error: Workflows.Dequeue.Error) =
+        match error with
+        | Workflows.Dequeue.Error.DequeueError DomainServiceTypes.DequeueError.NotFound ->
+            "Not found in queue" |> Successful.OK // TODO: More appropriate code
+        | Workflows.Dequeue.Error.DequeueError DomainServiceTypes.DequeueError.RejectedInMergingBatch ->
+            "Rejected: PR is currently being merged" |> Successful.OK // TODO: More appropriate code
+        | Workflows.Dequeue.Error.ValidationError message ->
+            message |> Successful.OK // TODO: More appropriate code
+
+    comment
+    |> Workflows.Dequeue.dequeue load save
+    |> Result.fold asSuccess asError
+
 let private processIntendedCommand load save lookup: ProcessIntendedCommand =
     fun command ->
         match command with
         | Ok(EnqueueCommand issueComment) ->
             issueComment |> processEnqueue load save lookup
+        | Ok(DequeueCommand issueComment) ->
+            issueComment |> processDequeue load save lookup
         | Error message ->
             message |> Successful.OK
 

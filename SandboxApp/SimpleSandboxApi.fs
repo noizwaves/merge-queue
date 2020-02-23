@@ -135,7 +135,11 @@ let fireAndForget (load: Load) (save: Save) id: WebPart =
 
 let dequeue (load: Load) (save: Save) id: WebPart =
     let dequeue' = dequeue load save
-    let cmd: Dequeue.Command = { number = id }
+
+    let cmd: Dequeue.Command =
+        { number = id
+          repoOwner = "some-owner"
+          repoName = "some-name" }
 
     let result = dequeue' cmd
 

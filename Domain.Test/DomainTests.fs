@@ -314,7 +314,12 @@ let ``Enqueue multiple Pull Requests``() =
 [<Fact>]
 let ``Dequeue an enqueued Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 1 })
+        idleWithTwoPullRequests
+        |> applyCommands (fun load save ->
+            dequeue load save
+                { number = 1
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal expected
@@ -338,7 +343,9 @@ let ``Dequeue a sin binned Pull Request``() =
         |> snd
 
     let result, state =
-        idleWithOneEnqueuedOneSinBinned |> applyCommands (fun load save -> dequeue load save { number = 1 })
+        idleWithOneEnqueuedOneSinBinned
+        |> applyCommands (fun load save ->
+            dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal (expected)
@@ -354,7 +361,7 @@ let ``Dequeue a sin binned Pull Request``() =
 [<Fact>]
 let ``Dequeue an unknown Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404 })
+        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Error(Error.DequeueError DequeueError.NotFound)
     result |> should equal expected
@@ -370,7 +377,7 @@ let ``Dequeue an unknown Pull Request``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
-        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
+        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Ok(Success.DequeuedAndAbortRunningBatch([ one; two ], (makePullRequestID 1)))
     result |> should equal expected
@@ -393,7 +400,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
         runningBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeLookup threeCmd |> ignore
-            dequeue load save { number = 333 })
+            dequeue load save { number = 333; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal expected
@@ -413,7 +420,7 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
-        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1 })
+        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Error(Error.DequeueError DequeueError.RejectedInMergingBatch)
     result |> should equal expected
@@ -426,7 +433,7 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
         mergingBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeLookup threeCmd |> ignore
-            dequeue load save { number = 333 })
+            dequeue load save { number = 333; repoOwner = "some-owner"; repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal expected

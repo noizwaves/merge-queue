@@ -311,8 +311,8 @@ let ``Realistic workflow``() =
              PlannedBatch [ seven.number; six.number; eight.number ] ]
 
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
-    dequeue' { number = 5555 } |> ignore
-    dequeue' { number = 3333 } |> ignore
+    dequeue' { number = 5555; repoOwner = "some-owner"; repoName = "some-name" } |> ignore
+    dequeue' { number = 3333; repoOwner = "some-owner"; repoName = "some-name" } |> ignore
     ingestBuildUpdate' { message = (UnvalidatedBuildMessage.Success "12000000") } |> ignore
     ingestMergeUpdate' { message = UnvalidatedMergeMessage.Success } |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
