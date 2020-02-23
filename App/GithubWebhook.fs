@@ -6,10 +6,7 @@ open Suave.Operators
 
 type private IssueCommentJsonBodyProvider = JsonProvider<"""{
   "issue": {
-    "number": 1,
-    "pull_request": {
-      "url": "https://api.github.com/repos/Codertocat/Hello-World/pulls/1"
-    }
+    "number": 1
   },
   "comment": {
     "body": "enqueue"
