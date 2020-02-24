@@ -18,9 +18,12 @@ Done
 1.  dequeue a PR
 
 **Spike**
--   accept arguments of owner and name for repo to make the call to github
+-   Listen for changes in status
+    -   https://developer.github.com/v3/activity/events/types/#statusevent
+    -   contains SHA -> (context, state)!
 
 Backlog
+1.  Confirm that GitHub Webhook (`pull_request` && `synchronize`) fired when branch is updated for PR
 1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
 1.  solidify ubiquitous language around running (building || merging) batches
 1.  GOAL(?): domain functions are not unwrapping types
