@@ -17,12 +17,17 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
+1.  Reset all statuses on a PR when it's SHA is updated (`Domain.fs:267`)
+    -   handle new edge case when only 1 of many statuses has returned success and others have not returned
+
 **Spike**
 -   Listen for changes in status
     -   https://developer.github.com/v3/activity/events/types/#statusevent
     -   contains SHA -> (context, state)!
 
 Backlog
+1.  Take in desired repo (owner and name) from environment
+    -   validate based upon this
 1.  Confirm that GitHub Webhook (`pull_request` && `synchronize`) fired when branch is updated for PR
 1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
 1.  solidify ubiquitous language around running (building || merging) batches
