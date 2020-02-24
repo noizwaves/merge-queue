@@ -243,7 +243,7 @@ let updateShaInQueue: UpdateShaInQueue =
             queue
             |> AttemptQueue.tryFind (fun ((PassingPullRequest pr), _) -> pr.number = number)
             // TODO: a sha update should always clear the commit statuses, always making it a NaughtyPullRequest
-            |> Option.map (fun ((PassingPullRequest pr), _) -> { pr with sha = newValue })
+            |> Option.map (fun ((PassingPullRequest pr), _) -> { pr with sha = newValue; statuses = [] })
             |> Option.map NaughtyPullRequest
 
         // we know it is naughty because it *should* have empty statuses
@@ -264,10 +264,9 @@ let updateShaInQueue: UpdateShaInQueue =
 // SMELL: these were private before command split, are they real domain methods?
 let updateShaInSinBin: UpdateShaInSinBin =
     fun (number: PullRequestNumber) (newValue: SHA) (SinBin sinBin) ->
-        // TODO: a sha update should always clear the commit statuses
         sinBin
         |> List.map (fun (NaughtyPullRequest pr) ->
-            if pr.number = number then NaughtyPullRequest { pr with sha = newValue }
+            if pr.number = number then NaughtyPullRequest { pr with sha = newValue; statuses = [] }
             else NaughtyPullRequest pr)
         |> SinBin
 

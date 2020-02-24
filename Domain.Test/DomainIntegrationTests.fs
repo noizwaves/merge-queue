@@ -223,7 +223,7 @@ let ``Realistic workflow``() =
     enqueue' sevenLookup sevenCmd |> ignore
     let ``Five fails to build, Six's branch is updated, batch continues to build`` = fetch()
 
-    let six_v2 = PullRequest.create (makePullRequestID 6666) (makeSha "60606060") [ passedCircleCI ]
+    let six_v2 = PullRequest.create (makePullRequestID 6666) (makeSha "60606060") []
     let five_v2 = PullRequest.create (makePullRequestID 5555) (makeSha "00005555") [ failedCircleCI ]
 
     ``Five fails to build, Six's branch is updated, batch continues to build``
@@ -258,7 +258,7 @@ let ``Realistic workflow``() =
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
 
     let six_v3 = PullRequest.create (makePullRequestID 6666) (makeSha "60606060") [ passedCircleCI ]
-    let five_v3 = PullRequest.create (makePullRequestID 5555) (makeSha "50505050") [ failedCircleCI ]
+    let five_v3 = PullRequest.create (makePullRequestID 5555) (makeSha "50505050") []
 
     ``Five's branch is updated, Batch fails to build, Six's build passes``
     |> peekCurrentQueue
@@ -311,8 +311,16 @@ let ``Realistic workflow``() =
              PlannedBatch [ seven.number; six.number; eight.number ] ]
 
     // 6. Five is dequeued, Three is dequeued, The batch builds and merges successfully
-    dequeue' { number = 5555; repoOwner = "some-owner"; repoName = "some-name" } |> ignore
-    dequeue' { number = 3333; repoOwner = "some-owner"; repoName = "some-name" } |> ignore
+    dequeue'
+        { number = 5555
+          repoOwner = "some-owner"
+          repoName = "some-name" }
+    |> ignore
+    dequeue'
+        { number = 3333
+          repoOwner = "some-owner"
+          repoName = "some-name" }
+    |> ignore
     ingestBuildUpdate' { message = (UnvalidatedBuildMessage.Success "12000000") } |> ignore
     ingestMergeUpdate' { message = UnvalidatedMergeMessage.Success } |> ignore
     let ``Five is dequeued, Three is dequeued, The batch builds and merges successfully`` = fetch()
@@ -364,7 +372,7 @@ let ``Realistic workflow``() =
     |> ignore
     let ``Start another batch, Six's branch is updated during the build causing an abort`` = fetch()
 
-    let six_v4 = PullRequest.create (makePullRequestID 6666) (makeSha "66006600") [ passedCircleCI ]
+    let six_v4 = PullRequest.create (makePullRequestID 6666) (makeSha "66006600") []
 
     ``Start another batch, Six's branch is updated during the build causing an abort``
     |> peekCurrentQueue

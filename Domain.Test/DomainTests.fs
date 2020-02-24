@@ -345,7 +345,10 @@ let ``Dequeue a sin binned Pull Request``() =
     let result, state =
         idleWithOneEnqueuedOneSinBinned
         |> applyCommands (fun load save ->
-            dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
+            dequeue load save
+                { number = 1
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal (expected)
@@ -361,7 +364,12 @@ let ``Dequeue a sin binned Pull Request``() =
 [<Fact>]
 let ``Dequeue an unknown Pull Request``() =
     let result, state =
-        idleWithTwoPullRequests |> applyCommands (fun load save -> dequeue load save { number = 404; repoOwner = "some-owner"; repoName = "some-name" })
+        idleWithTwoPullRequests
+        |> applyCommands (fun load save ->
+            dequeue load save
+                { number = 404
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Error(Error.DequeueError DequeueError.NotFound)
     result |> should equal expected
@@ -377,7 +385,12 @@ let ``Dequeue an unknown Pull Request``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a running batch``() =
     let result, state =
-        runningBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
+        runningBatchOfTwo
+        |> applyCommands (fun load save ->
+            dequeue load save
+                { number = 1
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Ok(Success.DequeuedAndAbortRunningBatch([ one; two ], (makePullRequestID 1)))
     result |> should equal expected
@@ -400,7 +413,10 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
         runningBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeLookup threeCmd |> ignore
-            dequeue load save { number = 333; repoOwner = "some-owner"; repoName = "some-name" })
+            dequeue load save
+                { number = 333
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal expected
@@ -420,7 +436,12 @@ let ``Dequeue a Pull Request that is waiting behind a running batch``() =
 [<Fact>]
 let ``Dequeue a Pull Request that is in a merging batch``() =
     let result, state =
-        mergingBatchOfTwo |> applyCommands (fun load save -> dequeue load save { number = 1; repoOwner = "some-owner"; repoName = "some-name" })
+        mergingBatchOfTwo
+        |> applyCommands (fun load save ->
+            dequeue load save
+                { number = 1
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Error(Error.DequeueError DequeueError.RejectedInMergingBatch)
     result |> should equal expected
@@ -433,7 +454,10 @@ let ``Dequeue a Pull Request that is waiting behind a merging batch``() =
         mergingBatchOfTwo
         |> applyCommands (fun load save ->
             enqueue load save threeLookup threeCmd |> ignore
-            dequeue load save { number = 333; repoOwner = "some-owner"; repoName = "some-name" })
+            dequeue load save
+                { number = 333
+                  repoOwner = "some-owner"
+                  repoName = "some-name" })
 
     let expected: DequeueResult = Ok Success.Dequeued
     result |> should equal expected
@@ -726,10 +750,12 @@ let ``The branch head for an enqueued PR is updated``() =
     |> peekCurrentQueue
     |> should equal [ two ]
 
-    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
     |> peekSinBin
-    |> should equal [ { one with sha = (makeSha "10101010") } ]
+    |> should equal
+           [ { one with
+                   sha = (makeSha "10101010")
+                   statuses = [] } ]
 
 [<Fact>]
 let ``The branch head for a running PR is updated``() =
@@ -749,10 +775,12 @@ let ``The branch head for a running PR is updated``() =
     |> peekCurrentQueue
     |> should equal [ two ]
 
-    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
     |> peekSinBin
-    |> should equal [ { one with sha = (makeSha "10101010") } ]
+    |> should equal
+           [ { one with
+                   sha = (makeSha "10101010")
+                   statuses = [] } ]
 
 [<Fact>]
 let ``The branch head for a unknown PR is updated when batch is running``() =
@@ -791,10 +819,12 @@ let ``The branch head for an enqueued (but not running) PR is updated when batch
     |> peekCurrentBatch
     |> should equal (Some [ one; two ])
 
-    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
     |> peekSinBin
-    |> should equal [ { three with sha = (makeSha "30303030") } ]
+    |> should equal
+           [ { three with
+                   sha = (makeSha "30303030")
+                   statuses = [] } ]
 
 [<Fact>]
 let ``The branch head for an enqueued (but not batched) PR is updated when batch is merging``() =
@@ -817,10 +847,12 @@ let ``The branch head for an enqueued (but not batched) PR is updated when batch
     |> peekCurrentBatch
     |> should equal (Some [ one; two ])
 
-    // TODO: should the statuses be different? None? our PullRequest technically `passesBuild`
     state
     |> peekSinBin
-    |> should equal [ { three with sha = (makeSha "30303030") } ]
+    |> should equal
+           [ { three with
+                   sha = (makeSha "30303030")
+                   statuses = [] } ]
 
 [<Fact>]
 let ``The branch head for a batched PR is updated when batch is merging``() =
@@ -850,6 +882,42 @@ let ``The branch head for a batched PR is updated when batch is merging``() =
     state
     |> peekSinBin
     |> should be Empty
+
+[<Fact>]
+let ``The branch head for a sin-binned PR is updated``() =
+    let lookup: LookUpPullRequestDetails =
+        fun _ ->
+            async {
+                return Ok
+                           { sha = "00001111"
+                             statuses = [ "circleci", State.Pending ] }
+            }
+
+    let oneInSinBin =
+        MergeQueue.empty
+        |> applyCommands (fun load save -> enqueue load save lookup oneCmd)
+        |> snd
+
+    let result, state =
+        oneInSinBin
+        |> applyCommands (fun load save ->
+            updatePullRequestSha load save
+                { number = 1
+                  sha = "10101010" })
+
+    let expectedResult: UpdatePullRequestResult = Ok(UpdatePullRequestSuccess.NoChange)
+    result |> should equal expectedResult
+
+    state
+    |> peekCurrentQueue
+    |> should be Empty
+
+    state
+    |> peekSinBin
+    |> should equal
+           [ { one with
+                   sha = makeSha "10101010"
+                   statuses = [] } ]
 
 // Updated PR commit statuses come in
 

@@ -17,7 +17,7 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
-1.  Reset all statuses on a PR when it's SHA is updated (`Domain.fs:267`)
+1.  Update the UpdateStatus workflow to accept a single status (instead of many)
     -   handle new edge case when only 1 of many statuses has returned success and others have not returned
 
 **Spike**
