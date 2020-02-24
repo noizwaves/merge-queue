@@ -295,7 +295,7 @@ let updateShaInRunningBatch: UpdateShaInRunningBatch =
 // SMELL: these signatures are huge! Why?
 // SMELL: these were private before command split, are they real domain methods?
 let updateStatusesInSinBin: UpdateStatusesInSinBin =
-    fun (number: PullRequestNumber) (buildSha: SHA) (statuses: CommitStatuses) (queue: AttemptQueue) (sinBin: SinBin) ->
+    fun (number: PullRequestNumber) (buildSha: SHA) (status: CommitStatus) (queue: AttemptQueue) (sinBin: SinBin) ->
         // check to see if we should pull the matching commit out of the "sin bin"
         let matching =
             sinBin |> SinBin.tryFind (fun (NaughtyPullRequest pr) -> pr.number = number && pr.sha = buildSha)
@@ -303,7 +303,10 @@ let updateStatusesInSinBin: UpdateStatusesInSinBin =
         match matching with
         | Some(NaughtyPullRequest pr) ->
             // update PR's status
-            let updated = { pr with statuses = statuses }
+            let otherStatuses =
+                pr.statuses
+                |> List.filter (fun s -> s.context <> status.context)
+            let updated = { pr with statuses = status :: otherStatuses }
             let updatedSinBin = sinBin |> SinBin.removeByNumber number
 
             match prepareForQueue updated with
@@ -564,16 +567,16 @@ let updatePullRequest: UpdatePullRequest =
 
                 AggregateSuccess.create UpdatePullRequestSuccess.NoChange newModel
 
-let updateStatuses: UpdateStatuses =
+let updateStatus: UpdateStatus =
     fun command ->
         let number = command.command.number
         let buildSha = command.command.sha
-        let statuses = command.command.statuses
+        let status = command.command.status
         let model = command.aggregate
 
         // check to see if we should pull the matching commit out of the "sin bin"
         let newQueue, newSinBin =
-            updateStatusesInSinBin number buildSha statuses model.queue model.sinBin
+            updateStatusesInSinBin number buildSha status model.queue model.sinBin
 
         let newModel =
             { model with

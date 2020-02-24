@@ -98,8 +98,8 @@ module DomainServiceTypes =
     type StatusUpdate =
         { number: PullRequestNumber
           sha: SHA
-          statuses: CommitStatuses }
+          status: CommitStatus }
 
-    type UpdateStatuses = Command<StatusUpdate> -> AggregateSuccess<UpdateStatusesSuccess>
+    type UpdateStatus = Command<StatusUpdate> -> AggregateSuccess<UpdateStatusesSuccess>
 
     type PreviewExecutionPlan = MergeQueue -> ExecutionPlan

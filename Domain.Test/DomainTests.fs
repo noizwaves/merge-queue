@@ -9,7 +9,7 @@ open MergeQueue.DbTypes
 open MergeQueue.GitHubTypes
 open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
-open MergeQueue.Workflows.UpdateStatuses
+open MergeQueue.Workflows.UpdateStatus
 open MergeQueue.Workflows.Dequeue
 open MergeQueue.Workflows.StartBatch
 open MergeQueue.Workflows.IngestBuild
@@ -934,10 +934,10 @@ let ``An updated PR with successful build status is re-enqueued at the bottom``(
     let state =
         awaitingStatusInfo
         |> applyCommands (fun load save ->
-            updateStatuses load save
+            updateStatus load save
                 { number = 1
                   sha = "10101010"
-                  statuses = [ "circleci", "Success" ] })
+                  status = "circleci", "Success" })
         |> snd
 
     state
@@ -959,10 +959,10 @@ let ``An updated PR with failing build status is not re-enqueued``() =
     let state =
         awaitingStatusInfo
         |> applyCommands (fun load save ->
-            updateStatuses load save
+            updateStatus load save
                 { number = 1
                   sha = "10101010"
-                  statuses = [ "circleci", "Failure" ] })
+                  status = "circleci", "Failure" })
         |> snd
 
     state
@@ -982,10 +982,10 @@ let ``Updates for a PR not in the sin bin is ignored``() =
     let state =
         awaitingStatusInfo
         |> applyCommands (fun load save ->
-            updateStatuses load save
+            updateStatus load save
                 { number = 333
                   sha = "10101010"
-                  statuses = [ "circleci", "Success" ] })
+                  status = "circleci", "Success" })
         |> snd
 
     state |> should equal awaitingStatusInfo
@@ -1007,15 +1007,50 @@ let ``Old updates for a PR with many SHA updates are ignored``() =
     let state =
         awaitingStatusInfo
         |> applyCommands (fun load save ->
-            updateStatuses load save
+            updateStatus load save
                 { number = 1
                   sha = "10101010"
-                  statuses = [ "circleci", "Success" ] })
+                  status = "circleci", "Success" })
         |> snd
 
     state
     |> peekCurrentQueue
     |> should equal [ two ]
+
+[<Fact>]
+let ``PR status updates are unique per context``() =
+    let lookup: LookUpPullRequestDetails =
+        fun _ ->
+            async {
+                return Ok
+                           { sha = "00001111"
+                             statuses = [ "circleci", State.Pending ] }
+            }
+
+    let oneInSinBin =
+        MergeQueue.empty
+        |> applyCommands (fun load save -> enqueue load save lookup oneCmd)
+        |> snd
+
+    let state =
+        oneInSinBin
+        |> applyCommands (fun load save ->
+            updateStatus load save
+                { number = 1
+                  sha = "00001111"
+                  status = "circleci", "Failure" })
+        |> snd
+
+    state
+    |> peekCurrentQueue
+    |> should be Empty
+
+    state
+    |> peekSinBin
+    |> should equal
+           [ { one with
+                   sha = makeSha "00001111"
+                   statuses = [ failedCircleCI ] } ]
 
 // Failed batches are bisected
 

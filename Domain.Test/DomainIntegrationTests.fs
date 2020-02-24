@@ -7,7 +7,7 @@ open MergeQueue.DomainTypes
 open MergeQueue.GitHubTypes
 open MergeQueue.Workflows
 open MergeQueue.Workflows.Enqueue
-open MergeQueue.Workflows.UpdateStatuses
+open MergeQueue.Workflows.UpdateStatus
 open MergeQueue.Workflows.Dequeue
 open MergeQueue.Workflows.StartBatch
 open MergeQueue.Workflows.IngestBuild
@@ -158,7 +158,7 @@ let ``Realistic workflow``() =
     let enqueue' = enqueue fetch update
     let startBatch' = startBatch fetch update
     let updatePullRequestSha' = updatePullRequestSha fetch update
-    let updateStatuses' = updateStatuses fetch update
+    let updateStatus' = updateStatus fetch update
     let ingestBuildUpdate' = ingestBuildUpdate fetch update
     let ingestMergeUpdate' = ingestMergeUpdate fetch update
     let dequeue' = dequeue fetch update
@@ -211,10 +211,10 @@ let ``Realistic workflow``() =
              PlannedBatch [ six.number ] ]
 
     // 3. Five fails to build, Six's branch is updated, Seven is enqueued, batch continues to build
-    updateStatuses'
+    updateStatus'
         { number = 5555
           sha = "00005555"
-          statuses = [ "circleci", "Failure" ] }
+          status = "circleci", "Failure" }
     |> ignore
     updatePullRequestSha'
         { number = 6666
@@ -250,10 +250,10 @@ let ``Realistic workflow``() =
           sha = "50505050" }
     |> ignore
     ingestBuildUpdate' { message = UnvalidatedBuildMessage.Failure } |> ignore
-    updateStatuses'
+    updateStatus'
         { number = 6666
           sha = "60606060"
-          statuses = [ "circleci", "Success" ] }
+          status = "circleci", "Success" }
     |> ignore
     let ``Five's branch is updated, Batch fails to build, Six's build passes`` = fetch()
 
@@ -282,10 +282,10 @@ let ``Realistic workflow``() =
     // 5. Start another batch, Eight is enqueued, Five's build fails again
     startBatch'() |> ignore
     enqueue' eightLookup eightCmd |> ignore
-    updateStatuses'
+    updateStatus'
         { number = 5555
           sha = "50505050"
-          statuses = [ "circleci", "Failure" ] }
+          status = "circleci", "Failure" }
     |> ignore
     let ``Start another batch, Eight is enqueued, Five's build fails again`` = fetch()
 
@@ -391,15 +391,15 @@ let ``Realistic workflow``() =
     |> should equal [ PlannedBatch [ seven.number; eight.number ] ]
 
     // 9. Six's build starts then passes, start a batch
-    updateStatuses'
+    updateStatus'
         { number = 6666
           sha = "66006600"
-          statuses = [ "circleci", "Pending" ] }
+          status = "circleci", "Pending" }
     |> ignore
-    updateStatuses'
+    updateStatus'
         { number = 6666
           sha = "66006600"
-          statuses = [ "circleci", "Success" ] }
+          status = "circleci", "Success" }
     |> ignore
     startBatch'() |> ignore
     let ``Six's build starts then passes, start a batch`` = fetch()

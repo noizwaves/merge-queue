@@ -113,4 +113,4 @@ module DomainTypes =
     // result is maybe cancel the current batch
     type UpdateShaInRunningBatch = PullRequestNumber -> SHA -> RunnableBatch -> AttemptQueue -> SinBin -> (bool * AttemptQueue * SinBin)
 
-    type UpdateStatusesInSinBin = PullRequestNumber -> SHA -> CommitStatuses -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)
+    type UpdateStatusesInSinBin = PullRequestNumber -> SHA -> CommitStatus -> AttemptQueue -> SinBin -> (AttemptQueue * SinBin)

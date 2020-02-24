@@ -437,12 +437,12 @@ module UpdatePullRequest =
             |> Common.tee (Result.map saveMergeQueue)
             |> Result.map AggregateSuccess.success
 
-module UpdateStatuses =
+module UpdateStatus =
     // Types
     type Command =
         { number: int
           sha: string
-          statuses: List<string * string> }
+          status: string * string }
 
     type Success = UpdateStatusesSuccess
 
@@ -460,18 +460,14 @@ module UpdateStatuses =
         fun command ->
             let number' = PullRequestNumber.create command.number
             let buildSha' = SHA.create command.sha
+            let status' = CommitStatus.create command.status
 
-            let statuses' =
-                command.statuses
-                |> List.map CommitStatus.create
-                |> Common.consolidateErrors
-
-            match number', buildSha', statuses' with
-            | Ok number, Ok buildSha, Ok statuses ->
+            match number', buildSha', status' with
+            | Ok number, Ok buildSha, Ok status ->
                 Ok
                     { number = number
                       sha = buildSha
-                      statuses = statuses }
+                      status = status }
             | Error error, _, _ ->
                 Error error
             | _, Error error, _ ->
@@ -492,10 +488,10 @@ module UpdateStatuses =
     type private SaveMergeQueue = AggregateSuccess<UpdateStatusesSuccess> -> unit
 
     // Implementation
-    let updateStatuses (load: Load) (save: Save): UpdateStatusWorkflow =
+    let updateStatus (load: Load) (save: Save): UpdateStatusWorkflow =
         let validateCommand = validateCommand >> Result.mapError ValidationError
         let loadMergeQueue = loadMergeQueue load
-        let updateStep: UpdateStep = updateStatuses
+        let updateStep: UpdateStep = updateStatus
         let saveMergeQueue: SaveMergeQueue = (AggregateSuccess.aggregate >> save)
 
         fun command ->

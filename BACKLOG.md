@@ -17,9 +17,6 @@ Done
 1.  fire and forget PRs
 1.  dequeue a PR
 
-1.  Update the UpdateStatus workflow to accept a single status (instead of many)
-    -   handle new edge case when only 1 of many statuses has returned success and others have not returned
-
 **Spike**
 -   Listen for changes in status
     -   https://developer.github.com/v3/activity/events/types/#statusevent
@@ -32,6 +29,7 @@ Backlog
 1.  BuildStatus and BuildProgress seem similar but represent different things, hmnn
 1.  solidify ubiquitous language around running (building || merging) batches
 1.  GOAL(?): domain functions are not unwrapping types
+1.  Configurable required commit statuses for a PR
 1.  use a result computation expression to simplify validation
 1.  somehow return "Domain Events" out of commands, like BatchStarted, PullRequestEnqueued, etc
 1.  view where my PR is
